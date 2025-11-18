@@ -9,6 +9,8 @@ import { REPL } from './repl.js';
 import { ToolRegistry } from './tools/registry.js';
 import { toolDefinitions } from './tools/definitions.js';
 import { AgenticLoop, buildSystemPrompt } from './agent/loop.js';
+import { SessionState } from './session/state.js';
+import { SessionTracker } from './session/tracker.js';
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'debug';
 const isDebug = process.env.NODE_ENV === 'debug';
@@ -49,14 +51,24 @@ async function main(): Promise<void> {
       });
     }
 
-    const client = new CerebrasClient(cerebrasConfig);
+    const tracker = new SessionTracker();
+    const client = new CerebrasClient(cerebrasConfig, tracker);
+    const sessionState = new SessionState(cerebrasConfig.model, options.system);
     const fileManager = new FileManager(process.cwd(), projectConfig.excludedPaths);
-    const toolRegistry = new ToolRegistry(toolDefinitions, {
-      fileManager,
-      projectRoot: process.cwd(),
-    });
+    const toolRegistry = new ToolRegistry(
+      toolDefinitions,
+      {
+        fileManager,
+        projectRoot: process.cwd(),
+      },
+      {
+        sessionState,
+        tracker,
+        interactive: !options.prompt,
+      },
+    );
 
-    const systemPromptBuilder = () => buildSystemPrompt(toolRegistry, projectConfig, options.system);
+    const systemPromptBuilder = () => buildSystemPrompt(toolRegistry, projectConfig, sessionState);
     const agent = new AgenticLoop(client, toolRegistry, systemPromptBuilder());
 
     if (options.listFiles) {
@@ -82,11 +94,11 @@ async function main(): Promise<void> {
     }
 
     if (options.prompt) {
-      await handlePromptMode(agent, options.prompt, systemPromptBuilder());
+      await handlePromptMode(agent, options.prompt, systemPromptBuilder(), tracker, sessionState);
       return;
     }
 
-    const repl = new REPL(agent, systemPromptBuilder);
+    const repl = new REPL(agent, systemPromptBuilder, sessionState, tracker);
     await repl.start();
   } catch (error) {
     console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
@@ -97,10 +109,17 @@ async function main(): Promise<void> {
   }
 }
 
-async function handlePromptMode(agent: AgenticLoop, prompt: string, systemPrompt: string): Promise<void> {
+async function handlePromptMode(
+  agent: AgenticLoop,
+  prompt: string,
+  systemPrompt: string,
+  tracker: SessionTracker,
+  sessionState: SessionState,
+): Promise<void> {
   try {
     const response = await agent.run(prompt, { systemPrompt, stream: false });
     console.log(chalk.blueBright(`\n${response}\n`));
+    console.log(tracker.buildSummary(sessionState.getModelName()));
   } catch (error) {
     throw error instanceof Error ? error : new Error('Prompt mode failed');
   }

@@ -43,21 +43,25 @@ CEREBRAS_TEMPERATURE=0.7
   ccode --structure
   ```
 
-## 4. Stream output & file operations
+## 4. Stream output & tool calls
 - Responses stream live thanks to the `--stream` default. Use `--no-stream` to disable.
-- When the assistant wants file access, it emits:
-  ```
-  Read file: path/to/file
-  Write file: path/to/file
-  <content>
-  ```
-  The REPL’s post-processing step invokes `FileManager` to fulfill these requests and prints success/failure messages.
+- Tool requests always arrive as JSON blobs (e.g., `{"tool_calls":[{"name":"read_file","input":{"path":"src/index.ts"}}]}`) so the CLI can fulfill them deterministically.
+- Tool results (file contents, directory listings, bash output) feed straight back into the agent loop and are cited in the final summary.
 
-## 5. Testing checklist
+## 5. Slash commands & approvals
+- `/init` scaffold `AGENTS.md` with Codex instructions.
+- `/status` show current model (fixed), reasoning mode, approvals, mentions, and tool usage stats.
+- `/approvals` choose which tool categories (`write_file`, `run_bash`) are auto-approved vs. require confirmation.
+- `/model` adjust reasoning style (fast/balanced/thorough). This updates the system prompt even though the model itself stays pinned.
+- `/mention <path>` prioritize files/directories (use `/mention clear` to reset).
+- `/compact` summarize recent turns and prune history to avoid context bloat.
+- `/quit` exits and prints the Claude Code-style session summary (wall time, API time, code changes, tool counts). The same summary appears on `Ctrl+C`.
+
+## 6. Testing checklist
 - `npm run build` — required before any commit/PR.
 - `npm test` — smoke tests the prompt path (`tsx src/index.ts -p 'test prompt'`). Requires `CEREBRAS_API_KEY`; consider stubbing when adding automated tests.
 
-## 6. Troubleshooting quick hits
+## 7. Troubleshooting quick hits
 - Missing API key → `Error: CEREBRAS_API_KEY not found`. Set the env var and retry.
 - Permission issues on the bin → `chmod +x bin/cerebras-code.js`.
 - Need a clean slate → `npm run clean && npm run build`.

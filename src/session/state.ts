@@ -1,0 +1,80 @@
+export type ApprovalSubject = 'write_file' | 'run_bash';
+export type ReasoningMode = 'fast' | 'balanced' | 'thorough';
+
+const REASONING_DESCRIPTIONS: Record<ReasoningMode, string> = {
+  fast: 'Use shallow reasoning passes to minimize latency; prefer single tool calls when safe.',
+  balanced: 'Use a balanced approach between speed and rigor.',
+  thorough: 'Use exhaustive reasoning with multi-step plans and redundant verification when feasible.',
+};
+
+export class SessionState {
+  private approvalAuto: Record<ApprovalSubject, boolean> = {
+    write_file: false,
+    run_bash: false,
+  };
+
+  private reasoning: ReasoningMode = 'balanced';
+  private mentions = new Set<string>();
+  private readonly modelName: string;
+  readonly customSystemInstruction?: string;
+
+  constructor(modelName: string, customSystemInstruction?: string) {
+    this.modelName = modelName;
+    this.customSystemInstruction = customSystemInstruction;
+  }
+
+  getModelName(): string {
+    return this.modelName;
+  }
+
+  setApproval(subject: ApprovalSubject, autoApprove: boolean): void {
+    this.approvalAuto[subject] = autoApprove;
+  }
+
+  setApprovals(map: Partial<Record<ApprovalSubject, boolean>>): void {
+    (Object.keys(map) as ApprovalSubject[]).forEach((key) => {
+      const value = map[key];
+      if (typeof value === 'boolean') {
+        this.approvalAuto[key] = value;
+      }
+    });
+  }
+
+  isAutoApproved(subject: ApprovalSubject): boolean {
+    return this.approvalAuto[subject];
+  }
+
+  approvalsSummary(): string {
+    const entries = [
+      `write_file: ${this.approvalAuto.write_file ? 'auto' : 'ask'}`,
+      `run_bash: ${this.approvalAuto.run_bash ? 'auto' : 'ask'}`,
+    ];
+    return entries.join(', ');
+  }
+
+  setReasoning(mode: ReasoningMode): void {
+    this.reasoning = mode;
+  }
+
+  getReasoning(): ReasoningMode {
+    return this.reasoning;
+  }
+
+  reasoningDescription(): string {
+    return REASONING_DESCRIPTIONS[this.reasoning];
+  }
+
+  addMention(path: string): void {
+    const normalized = path.trim();
+    if (normalized.length === 0) return;
+    this.mentions.add(normalized);
+  }
+
+  clearMentions(): void {
+    this.mentions.clear();
+  }
+
+  getMentions(): string[] {
+    return Array.from(this.mentions);
+  }
+}

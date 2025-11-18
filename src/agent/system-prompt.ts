@@ -1,5 +1,6 @@
 import type { ProjectConfig } from '../types.js';
 import type { ToolRegistry } from '../tools/registry.js';
+import type { SessionState } from '../session/state.js';
 
 const LOOP_INSTRUCTIONS = `
 You operate like Claude Code's agentic loop:
@@ -25,7 +26,7 @@ Response format:
 export function buildSystemPrompt(
   registry: ToolRegistry,
   projectConfig: ProjectConfig,
-  extraInstructions?: string,
+  sessionState: SessionState,
 ): string {
   const projectInstructions = projectConfig.instructions
     ? `Project-specific instructions:\n${projectConfig.instructions}\n`
@@ -33,12 +34,24 @@ export function buildSystemPrompt(
 
   const toolsOverview = `Available tools:\n${registry.listSummaries()}`;
 
-  const supplemental = extraInstructions ? `Additional user instructions:\n${extraInstructions}\n` : '';
+  const supplemental = sessionState.customSystemInstruction
+    ? `Additional user instructions:\n${sessionState.customSystemInstruction}\n`
+    : '';
+
+  const reasoning = `Reasoning preference (${sessionState.getReasoning()}): ${sessionState.reasoningDescription()}`;
+  const mentions = sessionState.getMentions();
+  const mentionBlock = mentions.length
+    ? `Focus files:\n${mentions.map((path) => `- ${path}`).join('\n')}\n`
+    : '';
+  const approvals = `Tool approval policy (enforced by CLI): ${sessionState.approvalsSummary()}. Do not attempt to bypass host restrictions.`;
 
   return [
     'You are Cerebras CLI Agent, a Claude Code-style AI pair programmer with direct tool access.',
     LOOP_INSTRUCTIONS.trim(),
     toolsOverview,
+    reasoning,
+    approvals,
+    mentionBlock.trim(),
     RESPONSE_POLICY.trim(),
     projectInstructions.trim(),
     supplemental.trim(),

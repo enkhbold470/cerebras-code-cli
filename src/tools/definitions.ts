@@ -105,8 +105,15 @@ export const toolDefinitions: ToolDefinition[] = [
       const path = requireString(input.path, 'path');
       const content = requireString(input.content, 'content');
       const absolute = join(ctx.projectRoot, path);
+      let previous: string | null = null;
+      try {
+        previous = await ctx.fileManager.readFile(path);
+      } catch {
+        previous = null;
+      }
       await mkdir(dirname(absolute), { recursive: true });
       await ctx.fileManager.writeFile(path, content);
+      ctx.tracker?.recordFileChange(path, previous, content);
       return `Wrote ${path} (${content.length} chars).`;
     },
   },

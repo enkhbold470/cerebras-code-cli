@@ -17,6 +17,7 @@ export class AgenticLoop {
   private readonly client: CerebrasClient;
   private readonly tools: ToolRegistry;
   private readonly maxIterations: number;
+  private currentSystemPrompt: string;
 
   constructor(
     client: CerebrasClient,
@@ -27,10 +28,12 @@ export class AgenticLoop {
     this.client = client;
     this.tools = tools;
     this.maxIterations = options?.maxIterations ?? 20;
+    this.currentSystemPrompt = initialSystemPrompt;
     this.messages.push({ role: 'system', content: initialSystemPrompt });
   }
 
   reset(systemPrompt: string): void {
+    this.currentSystemPrompt = systemPrompt;
     this.messages = [{ role: 'system', content: systemPrompt }];
   }
 
@@ -95,6 +98,21 @@ export class AgenticLoop {
       const message = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Agent loop failed: ${message}`);
     }
+  }
+
+  compactHistory(note?: string): void {
+    const systemMessage = this.messages.find((msg) => msg.role === 'system')?.content ?? this.currentSystemPrompt;
+    this.messages = [
+      { role: 'system', content: systemMessage },
+      {
+        role: 'assistant',
+        content: note || 'Conversation compacted manually; request a recap from the user if additional context is needed.',
+      },
+    ];
+  }
+
+  getHistory(): Message[] {
+    return [...this.messages];
   }
 }
 

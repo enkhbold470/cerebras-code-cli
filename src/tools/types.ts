@@ -1,4 +1,6 @@
 import type { FileManager } from '../file-manager.js';
+import type { SessionTracker } from '../session/tracker.js';
+import type { SessionState } from '../session/state.js';
 
 export interface ToolSchema {
   description: string;
@@ -13,6 +15,8 @@ export interface ToolInputSchema {
 export interface ToolExecuteContext {
   fileManager: FileManager;
   projectRoot: string;
+  tracker?: SessionTracker;
+  sessionState?: SessionState;
 }
 
 export interface ToolCall {

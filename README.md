@@ -37,11 +37,24 @@ ccode -p "review the code in src/index.ts"
 ccode -p "create a React component for a todo list"
 ```
 
+Custom system prompts (make sure the CLI is installed globally or reference the package explicitly):
+```bash
+ccode --system "Always run tests before summarizing" -p "add Vitest smoke tests"
+npx @enkhbold470/cerebras-cli --system "Prefer minimal diffs" -p "refactor src/index.ts"
+```
+
 Project analysis helpers:
 ```bash
 ccode --list-files
 ccode --structure
 ccode --system "You are a security auditor" -p "check for vulnerabilities"
+```
+
+Pipe data directly:
+```bash
+cat error.log | ccode -p "analyze this error log"
+git diff | ccode -p "review these changes"
+npm test 2>&1 | ccode -p "fix these failing tests"
 ```
 
 ### Tool Calling Protocol
@@ -58,12 +71,16 @@ Grounded in `docs/research-development.md`, the agent never emits raw HTML instr
 
 All tool results (file reads, writes, directory listings, bash output) feed back into the loop automatically so you get Claude Code-style reasoning directly in your terminal.
 
-Pipe data directly:
-```bash
-cat error.log | ccode -p "analyze this error log"
-git diff | ccode -p "review these changes"
-npm test 2>&1 | ccode -p "fix these failing tests"
-```
+### Slash Commands & Session Reports
+- `/init` – scaffold `AGENTS.md` with Codex instructions.
+- `/status` – show current model, reasoning mode, approvals, mentions, and tool usage counts.
+- `/approvals` – choose which tool categories (`write_file`, `run_bash`) are auto-approved.
+- `/model` – switch reasoning style (fast, balanced, thorough).
+- `/mention <path>` – highlight files/directories the agent must focus on (`/mention clear` resets).
+- `/compact` – summarize recent turns and trim context to avoid token pressure.
+- `/quit` – exit and display the session summary.
+
+Every session exit (including `Ctrl+C`) prints a report similar to Claude Code’s `/status`, covering wall time, API time, total code changes, and tool usage so you know what happened before publishing.
 
 ## Configuration
 Environment variables (via `.env` or shell):

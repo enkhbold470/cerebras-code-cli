@@ -4,14 +4,17 @@ import type {
   ChatCompletionResponse,
   StreamChunk,
 } from './types.js';
+import type { SessionTracker } from './session/tracker.js';
 
 export class CerebrasClient {
   private config: CerebrasConfig;
   private debug: boolean;
+  private tracker?: SessionTracker;
 
-  constructor(config: CerebrasConfig) {
+  constructor(config: CerebrasConfig, tracker?: SessionTracker) {
     this.config = config;
     this.debug = process.env.NODE_ENV === 'debug';
+    this.tracker = tracker;
   }
 
   async chat(messages: Message[], stream = false): Promise<string | AsyncGenerator<string>> {
@@ -28,6 +31,7 @@ export class CerebrasClient {
       console.log('[cerebras-client] POST', url);
     }
 
+    const requestStart = Date.now();
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -36,6 +40,9 @@ export class CerebrasClient {
       },
       body: JSON.stringify(body),
     });
+
+    const durationMs = Date.now() - requestStart;
+    this.tracker?.recordApiCall(durationMs);
 
     if (!response.ok) {
       const error = await response.text();
