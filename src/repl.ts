@@ -1,6 +1,7 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
+import figlet from 'figlet';
 import type { Message } from './types.js';
 import { CerebrasClient } from './cerebras-client.js';
 import { FileManager } from './file-manager.js';
@@ -32,9 +33,27 @@ When users ask you to write files, use the format: "Write file: <path>\\n<conten
 Be concise, helpful, and provide working code examples.`;
   }
 
+  private displayBanner(): void {
+    const banner = figlet.textSync('Cerebras Code', {
+      font: 'Standard',
+      horizontalLayout: 'default',
+      verticalLayout: 'default',
+    });
+    
+    console.log('\n');
+    console.log(chalk.cyan(banner));
+    console.log(chalk.cyan.bold('\n  AI Coding Agent powered by Ultra-Fast Cerebras Inference'));
+    console.log(chalk.gray('  ━'.repeat(60)));
+    console.log(chalk.yellow('  ⚡ Lightning fast responses (up to 2600 tokens/sec)'));
+    console.log(chalk.yellow('  🤖 Intelligent code assistance & project awareness'));
+    console.log(chalk.yellow('  📁 File operations via natural language'));
+    console.log(chalk.gray('  ━'.repeat(60)));
+    console.log(chalk.gray('\n  Commands: ') + chalk.white('exit, quit, clear, help'));
+    console.log(chalk.gray('  Type your question or request below\n'));
+  }
+
   async start(): Promise<void> {
-    console.log(chalk.cyan.bold('\n🚀 Cerebras Code CLI - Interactive Mode'));
-    console.log(chalk.gray('Type "exit" or "quit" to leave, "clear" to reset conversation\n'));
+    this.displayBanner();
 
     while (true) {
       const { input } = await inquirer.prompt<{ input: string }>([
