@@ -1,0 +1,47 @@
+{
+  "name": "@enkhbold470/cerebras-cli",
+  "version": "1.0.0",
+  "description": "AI coding agent powered by Cerebras ultra-fast inference",
+  "main": "lib/index.js",
+  "bin": {
+    "cerebras-code": "./bin/cerebras-code.js",
+    "ccode": "./bin/cerebras-code.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "clean": "del-cli lib",
+    "prepack": "npm run clean && npm run build",
+    "test": "tsx src/index.ts -p 'test prompt'"
+  },
+  "keywords": [
+    "ai",
+    "cli",
+    "coding",
+    "cerebras",
+    "llm",
+    "agent"
+  ],
+  "author": "Enkhbold",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module",
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^14.0.2",
+    "dotenv": "^17.2.3",
+    "fast-glob": "^3.3.3",
+    "glob": "^12.0.0",
+    "inquirer": "^13.0.1",
+    "ora": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.9",
+    "@types/node": "^24.10.1",
+    "del-cli": "^7.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
