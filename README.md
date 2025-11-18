@@ -6,7 +6,7 @@ Claude Code-style AI coding assistant powered by ultra-fast Cerebras inference. 
 - **Lightning Fast** – built on Cerebras inference for streaming up to 2600 tokens/sec.
 - **Global CLI** – install once with `npm install -g @enkhbold470/cerebras-cli`, access from anywhere.
 - **Interactive REPL** – persistent chat session with history, help, and file operations.
-- **File Operations** – request reads/writes via natural language; agent uses `Read file:` / `Write file:` instructions.
+- **Agentic Tool Loop** – gather → plan → execute → verify cycle with structured tool calls (`read_file`, `write_file`, `list_directory`, `search_text`, `run_bash`).
 - **Project Context** – auto-loads `.cerebrasrc` and `CLAUDE.md`, scans structure with glob/fast-glob.
 - **Streaming Output** – real-time token streaming for prompts or REPL sessions.
 
@@ -43,6 +43,20 @@ ccode --list-files
 ccode --structure
 ccode --system "You are a security auditor" -p "check for vulnerabilities"
 ```
+
+### Tool Calling Protocol
+Grounded in `docs/research-development.md`, the agent never emits raw HTML instructions. It speaks JSON:
+
+- Request tooling:
+  ```json
+  {"tool_calls":[{"id":"call-1","name":"read_file","input":{"path":"src/index.ts","start_line":1,"end_line":60}}]}
+  ```
+- Provide final answers:
+  ```json
+  {"final_response":"Summary + verification steps + files touched"}
+  ```
+
+All tool results (file reads, writes, directory listings, bash output) feed back into the loop automatically so you get Claude Code-style reasoning directly in your terminal.
 
 Pipe data directly:
 ```bash
