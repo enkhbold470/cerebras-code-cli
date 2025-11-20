@@ -71,7 +71,7 @@ export class REPL {
             {
               type: 'input',
               name: 'input',
-              message: chalk.green('You:'),
+              message: chalk.green('>'),
               prefix: '',
               transformer: (value: string) => {
                 // Show paste summary inline for large pastes
@@ -95,6 +95,15 @@ export class REPL {
         const lower = trimmed.toLowerCase();
 
         if (!trimmed) continue;
+
+        // Show preview and confirm for large pastes before processing
+        if (this.isLargePaste(trimmed)) {
+          const shouldProcess = await this.previewAndConfirmPaste(trimmed);
+          if (!shouldProcess) {
+            console.log(chalk.gray('Paste cancelled.\n'));
+            continue;
+          }
+        }
 
         if (trimmed.startsWith('/')) {
           const shouldExit = await this.handleSlashCommand(trimmed);
@@ -313,5 +322,34 @@ export class REPL {
 
   private isLargePaste(input: string): boolean {
     return input.length >= LARGE_PASTE_THRESHOLD;
+  }
+
+  private async previewAndConfirmPaste(input: string): Promise<boolean> {
+    const charCount = input.length;
+    const lineCount = input.split('\n').length;
+    const previewLines = input.split('\n').slice(0, 5);
+    const preview = previewLines.map((line) => `  ${line}`).join('\n');
+    const hasMore = lineCount > 5;
+
+    console.log(chalk.gray(`\n[Pasted Content ${charCount} chars, ${lineCount} lines]`));
+    if (lineCount > 1) {
+      console.log(chalk.gray('Preview:'));
+      console.log(chalk.gray(preview));
+      if (hasMore) {
+        console.log(chalk.gray(`  ... (${lineCount - 5} more lines)`));
+      }
+    }
+    console.log('');
+
+    const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
+      {
+        type: 'confirm',
+        name: 'confirm',
+        message: 'Process this pasted content?',
+        default: true,
+      },
+    ]);
+
+    return confirm;
   }
 }
