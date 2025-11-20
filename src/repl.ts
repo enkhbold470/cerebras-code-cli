@@ -47,27 +47,29 @@ export class REPL {
 
     await this.configureApprovals(true);
 
-    const handleSigint = () => {
-      console.log('\n');
-      this.printSessionSummary();
-      process.exit(0);
-    };
-    process.on('SIGINT', handleSigint);
-
     try {
       // Ensure the latest system prompt is active after approvals setup
       this.agent.reset(this.buildPrompt());
 
       while (true) {
-        const { input } = await inquirer.prompt<{ input: string }>([
-          {
-            type: 'input',
-            name: 'input',
-            message: chalk.green('You:'),
-            prefix: '',
-          },
-        ]);
-
+        let input: string;
+        try {
+          const answer = await inquirer.prompt<{ input: string }>([
+            {
+              type: 'input',
+              name: 'input',
+              message: chalk.green('You:'),
+              prefix: '',
+            },
+          ]);
+          input = answer.input;
+        } catch (error) {
+          if ((error as Error).name === 'ExitPromptError') {
+            console.log('\n');
+            break;
+          }
+          throw error;
+        }
         const trimmed = input.trim();
         const lower = trimmed.toLowerCase();
 
@@ -97,7 +99,6 @@ export class REPL {
         await this.processInput(trimmed);
       }
     } finally {
-      process.off('SIGINT', handleSigint);
       this.printSessionSummary();
     }
   }

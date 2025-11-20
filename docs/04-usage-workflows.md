@@ -47,6 +47,7 @@ CEREBRAS_TEMPERATURE=0.7
 - Responses stream live thanks to the `--stream` default. Use `--no-stream` to disable.
 - Tool requests always arrive as JSON blobs (e.g., `{"tool_calls":[{"name":"read_file","input":{"path":"src/index.ts"}}]}`) so the CLI can fulfill them deterministically.
 - Tool results (file contents, directory listings, bash output) feed straight back into the agent loop and are cited in the final summary.
+- `write_file` responses render git-style `diff` blocks so you can see additions (`+`) and removals (`-`) immediately after each edit.
 
 ## 5. Slash commands & approvals
 - `/init` scaffold `AGENTS.md` with Codex instructions.

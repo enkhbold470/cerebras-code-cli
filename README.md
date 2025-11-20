@@ -71,6 +71,8 @@ Grounded in `docs/research-development.md`, the agent never emits raw HTML instr
 
 All tool results (file reads, writes, directory listings, bash output) feed back into the loop automatically so you get Claude Code-style reasoning directly in your terminal.
 
+File edits also return inline `diff` blocks (with `+`/`-` prefixes) so you can inspect changes immediately without running `git diff`.
+
 ### Slash Commands & Session Reports
 - `/init` – scaffold `AGENTS.md` with Codex instructions.
 - `/status` – show current model, reasoning mode, approvals, mentions, and tool usage counts.

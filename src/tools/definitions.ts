@@ -3,6 +3,7 @@ import { mkdir } from 'fs/promises';
 import { promisify } from 'util';
 import { exec as execCb } from 'child_process';
 import { minimatch } from 'minimatch';
+import { diffLines } from 'diff';
 import type { ToolDefinition } from './types.js';
 
 const execAsync = promisify(execCb);
@@ -114,7 +115,24 @@ export const toolDefinitions: ToolDefinition[] = [
       await mkdir(dirname(absolute), { recursive: true });
       await ctx.fileManager.writeFile(path, content);
       ctx.tracker?.recordFileChange(path, previous, content);
-      return `Wrote ${path} (${content.length} chars).`;
+      const diff = diffLines(previous ?? '', content);
+      const formatted = diff
+        .flatMap((part) => {
+          const prefix = part.added ? '+' : part.removed ? '-' : ' ';
+          return part.value
+            .replace(/\r/g, '')
+            .split('\n')
+            .filter((line, index, arr) => !(line === '' && index === arr.length - 1))
+            .map((line) => `${prefix}${line}`);
+        })
+        .join('\n');
+
+      return [
+        `Wrote ${path} (${content.length} chars).`,
+        '```diff',
+        formatted || '(no textual changes)',
+        '```',
+      ].join('\n');
     },
   },
   {
