@@ -20,6 +20,9 @@ const REASONING_CHOICES: { name: string; value: ReasoningMode }[] = [
   { name: 'Thorough (deep reasoning)', value: 'thorough' },
 ];
 
+// Threshold for showing paste summary instead of full content
+const LARGE_PASTE_THRESHOLD = 500; // characters
+
 export class REPL {
   private readonly agent: AgenticLoop;
   private readonly buildPrompt: PromptBuilder;
@@ -38,7 +41,17 @@ export class REPL {
   }
 
   async start(): Promise<void> {
-    console.log(chalk.cyan.bold('\n🚀 Cerebras Code CLI — Agentic Mode'));
+    const asciiArt = `
+ ██████╗███████╗██████╗ ███████╗██████╗ ██████╗  █████╗ ███████╗
+██╔════╝██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝
+██║     █████╗  ██████╔╝█████╗  ██████╔╝██████╔╝███████║███████╗
+██║     ██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗██╔══██║╚════██║
+╚██████╗███████╗██║  ██║███████╗██████╔╝██║  ██║██║  ██║███████║
+ ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
+                                                                             
+`;
+    console.log(chalk.cyan(asciiArt));
+    console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode'));
     console.log(
       chalk.gray(
         'Commands: /init, /status, /approvals, /model, /mention <path>, /compact, /quit. Type "help" for tips.\n',
@@ -60,6 +73,13 @@ export class REPL {
               name: 'input',
               message: chalk.green('You:'),
               prefix: '',
+              transformer: (value: string) => {
+                // Show paste summary inline for large pastes
+                if (value.length >= LARGE_PASTE_THRESHOLD) {
+                  return chalk.gray(`[Pasted Content ${value.length} chars]`);
+                }
+                return value;
+              },
             },
           ]);
           input = answer.input;
@@ -70,6 +90,7 @@ export class REPL {
           }
           throw error;
         }
+
         const trimmed = input.trim();
         const lower = trimmed.toLowerCase();
 
@@ -288,5 +309,9 @@ export class REPL {
 
   private printSessionSummary(): void {
     console.log('\n' + this.tracker.buildSummary(this.sessionState.getModelName()) + '\n');
+  }
+
+  private isLargePaste(input: string): boolean {
+    return input.length >= LARGE_PASTE_THRESHOLD;
   }
 }
