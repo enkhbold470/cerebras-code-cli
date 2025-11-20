@@ -12,8 +12,8 @@ import { AgenticLoop, buildSystemPrompt } from './agent/loop.js';
 import { SessionState } from './session/state.js';
 import { SessionTracker } from './session/tracker.js';
 
-process.env.NODE_ENV = process.env.NODE_ENV || 'debug';
-const isDebug = process.env.NODE_ENV === 'debug';
+process.env.NODE_ENV = process.env.NODE_ENV || 'false';
+const isDebug = process.env.NODE_ENV === 'false';
 
 interface CliOptions {
   prompt?: string;
