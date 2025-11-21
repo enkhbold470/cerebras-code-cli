@@ -1,5 +1,6 @@
 export type ApprovalSubject = 'write_file' | 'run_bash';
 export type ReasoningMode = 'fast' | 'balanced' | 'thorough';
+export type PermissionMode = 'interactive' | 'auto-accept' | 'yolo';
 
 const REASONING_DESCRIPTIONS: Record<ReasoningMode, string> = {
   fast: 'Use shallow reasoning passes to minimize latency; prefer single tool calls when safe.',
@@ -14,6 +15,7 @@ export class SessionState {
   };
 
   private reasoning: ReasoningMode = 'balanced';
+  private permissionMode: PermissionMode = 'interactive';
   private mentions = new Set<string>();
   private readonly modelName: string;
   readonly customSystemInstruction?: string;
@@ -21,6 +23,23 @@ export class SessionState {
   constructor(modelName: string, customSystemInstruction?: string) {
     this.modelName = modelName;
     this.customSystemInstruction = customSystemInstruction;
+  }
+
+  setPermissionMode(mode: PermissionMode): void {
+    this.permissionMode = mode;
+    // Auto-approve all in YOLO mode
+    if (mode === 'yolo') {
+      this.approvalAuto.write_file = true;
+      this.approvalAuto.run_bash = true;
+    }
+  }
+
+  getPermissionMode(): PermissionMode {
+    return this.permissionMode;
+  }
+
+  isYoloMode(): boolean {
+    return this.permissionMode === 'yolo';
   }
 
   getModelName(): string {

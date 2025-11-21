@@ -11,6 +11,8 @@ import { toolDefinitions } from './tools/definitions.js';
 import { AgenticLoop, buildSystemPrompt } from './agent/loop.js';
 import { SessionState } from './session/state.js';
 import { SessionTracker } from './session/tracker.js';
+import { SlashCommandLoader } from './commands/slash-commands.js';
+import { CommandRegistry } from './commands/registry.js';
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'false';
 const isDebug = process.env.NODE_ENV === 'false';
@@ -21,6 +23,9 @@ interface CliOptions {
   stream?: boolean;
   listFiles?: boolean;
   structure?: boolean;
+  yolo?: boolean;
+  'dangerously-skip-permissions'?: boolean;
+  'output-format'?: 'text' | 'stream-json';
 }
 
 const program = new Command();
@@ -33,6 +38,9 @@ program
   .option('--no-stream', 'Disable streaming output')
   .option('--list-files', 'List project files')
   .option('--structure', 'Show project structure')
+  .option('--yolo', 'YOLO mode: auto-approve all operations (use with caution)')
+  .option('--dangerously-skip-permissions', 'Skip permission prompts (alias for --yolo)')
+  .option('--output-format <format>', 'Output format: text or stream-json', 'text')
   .parse(process.argv);
 
 const options = program.opts<CliOptions>();
@@ -54,6 +62,14 @@ async function main(): Promise<void> {
     const tracker = new SessionTracker();
     const client = new CerebrasClient(cerebrasConfig, tracker);
     const sessionState = new SessionState(cerebrasConfig.model, options.system);
+    
+    // Set permission mode based on CLI options
+    if (options.yolo || options['dangerously-skip-permissions']) {
+      sessionState.setPermissionMode('yolo');
+    } else if (options.prompt) {
+      sessionState.setPermissionMode('auto-accept');
+    }
+    
     const fileManager = new FileManager(process.cwd(), projectConfig.excludedPaths);
     const toolRegistry = new ToolRegistry(
       toolDefinitions,
@@ -93,12 +109,17 @@ async function main(): Promise<void> {
       return;
     }
 
+    // Initialize command registry
+    const commandLoader = new SlashCommandLoader();
+    const commandRegistry = new CommandRegistry(commandLoader);
+    await commandRegistry.load();
+
     if (options.prompt) {
       await handlePromptMode(agent, options.prompt, systemPromptBuilder(), tracker, sessionState);
       return;
     }
 
-    const repl = new REPL(agent, systemPromptBuilder, sessionState, tracker);
+    const repl = new REPL(agent, systemPromptBuilder, sessionState, tracker, commandRegistry);
     await repl.start();
   } catch (error) {
     console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
