@@ -6,8 +6,13 @@ Claude Code-style AI coding assistant powered by ultra-fast Cerebras inference. 
 - **Lightning Fast** – built on Cerebras inference for streaming up to 2600 tokens/sec.
 - **Global CLI** – install once with `npm install -g @enkhbold470/cerebras-cli`, access from anywhere.
 - **Interactive REPL** – persistent chat session with history, help, and file operations.
-- **Agentic Tool Loop** – gather → plan → execute → verify cycle with structured tool calls (`read_file`, `write_file`, `list_directory`, `search_text`, `run_bash`).
-- **Project Context** – auto-loads `.cerebrasrc` and `CLAUDE.md`, scans structure with glob/fast-glob.
+- **Agentic Tool Loop** – ReAct pattern (Thought → Action → Observation) with structured tool calls (`read_file`, `write_file`, `list_directory`, `search_text`, `run_bash`).
+- **Hierarchical Context Loading** – loads `AGENTS.md`/`CLAUDE.md` from global (~/.cerebras/) → project root → current directory (deeper files override).
+- **Slash Commands** – custom commands from `~/.cerebras/commands/*.md` with frontmatter metadata.
+- **Self-Verification Tools** – built-in `verify_type_check`, `verify_lint`, `verify_format`, `verify_test` for quality assurance.
+- **YOLO Mode** – `--yolo` or `--dangerously-skip-permissions` flag for automated workflows (use with caution).
+- **MCP Server Support** – Model Context Protocol integration for extended tooling (configure via `~/.cerebras/mcp-servers.json`).
+- **Multi-Agent Orchestration** – delegate tasks to specialist subagents for complex workflows.
 - **Streaming Output** – real-time token streaming for prompts or REPL sessions.
 
 ## Installation
@@ -85,14 +90,17 @@ File edits also return inline `diff` blocks (with `+`/`-` prefixes) so you can i
 Every session exit (including `Ctrl+C`) prints a report similar to Claude Code’s `/status`, covering wall time, API time, total code changes, and tool usage so you know what happened before publishing.
 
 ## Configuration
-Environment variables (via `.env` or shell):
+
+### Environment Variables
+Via `.env` or shell:
 ```bash
 CEREBRAS_API_KEY=your-api-key
 CEREBRAS_MAX_TOKENS=4096
 CEREBRAS_TEMPERATURE=0.7
 ```
 
-Project-level `.cerebrasrc`:
+### Project Configuration
+**`.cerebrasrc`** (project root):
 ```json
 {
   "excludedPaths": ["*.test.ts", "coverage/**", "docs/**"],
@@ -100,7 +108,67 @@ Project-level `.cerebrasrc`:
 }
 ```
 
-Additional instructions can live in `CLAUDE.md`; they automatically seed the system prompt.
+### Hierarchical Context Files
+Context files are loaded in priority order (deeper files override):
+
+1. **Global** (`~/.cerebras/AGENTS.md`, `~/.cerebras/CLAUDE.md`) – applies to all projects
+2. **Project** (`./AGENTS.md`, `./CLAUDE.md`) – project-specific rules
+3. **Directory** (`./subdir/AGENTS.md`, `./subdir/CLAUDE.md`) – directory-specific overrides
+
+**Example `AGENTS.md`:**
+```markdown
+## Project Overview
+Brief description of project.
+
+## Tech Stack
+- Language: TypeScript 5.2
+- Framework: Next.js 14
+
+## Do's ✅
+- Use TypeScript strict mode
+- Follow existing patterns
+
+## Don'ts ❌
+- Don't use `any` type
+- Don't bypass authentication
+```
+
+See `docs/example-agents.md` for a complete template.
+
+### MCP Server Configuration
+**`~/.cerebras/mcp-servers.json`:**
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/project"],
+      "env": {}
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### YOLO Mode
+For automated workflows (use with caution):
+```bash
+ccode --yolo -p "fix all lint errors"
+ccode --dangerously-skip-permissions -p "generate tests for src/utils.ts"
+```
+
+**Safety Checklist:**
+- ✓ Working in Git repository with clean branch
+- ✓ Created backup/commit point before YOLO
+- ✓ Scoped to specific directory
+- ✓ Not touching production systems
+- ✓ Can review output after completion
 
 ## Model Policy
 The CLI is pinned to the Cerebras-served model `qwen-3-235b-a22b-instruct-2507` for every request to guarantee consistent behavior and latency. CLI flags and project configs no longer switch models; if you need a different backend, fork the repo and adjust `DEFAULT_MODEL` in `src/config.ts`.

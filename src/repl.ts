@@ -6,6 +6,8 @@ import { join } from 'path';
 import { AgenticLoop } from './agent/loop.js';
 import { SessionState, type ApprovalSubject, type ReasoningMode } from './session/state.js';
 import { SessionTracker } from './session/tracker.js';
+import { SlashCommandLoader } from './commands/slash-commands.js';
+import { CommandRegistry } from './commands/registry.js';
 
 type PromptBuilder = () => string;
 
@@ -28,16 +30,20 @@ export class REPL {
   private readonly buildPrompt: PromptBuilder;
   private readonly sessionState: SessionState;
   private readonly tracker: SessionTracker;
+  private readonly commandRegistry: CommandRegistry;
+  
   constructor(
     agent: AgenticLoop,
     buildPrompt: PromptBuilder,
     sessionState: SessionState,
     tracker: SessionTracker,
+    commandRegistry?: CommandRegistry,
   ) {
     this.agent = agent;
     this.buildPrompt = buildPrompt;
     this.sessionState = sessionState;
     this.tracker = tracker;
+    this.commandRegistry = commandRegistry || new CommandRegistry(new SlashCommandLoader());
   }
 
   async start(): Promise<void> {
@@ -52,11 +58,15 @@ export class REPL {
 `;
     console.log(chalk.cyan(asciiArt));
     console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode'));
-    console.log(
-      chalk.gray(
-        'Commands: /init, /status, /approvals, /model, /mention <path>, /compact, /quit. Type "help" for tips.\n',
-      ),
-    );
+    
+    // Load slash commands
+    await this.commandRegistry.load();
+    const customCommands = this.commandRegistry.getNames();
+    const commandList = customCommands.length > 0
+      ? `Built-in: /init, /status, /approvals, /model, /mention <path>, /compact, /quit. Custom: ${customCommands.map(c => `/${c}`).join(', ')}.`
+      : 'Commands: /init, /status, /approvals, /model, /mention <path>, /compact, /quit.';
+    
+    console.log(chalk.gray(`${commandList} Type "help" for tips.\n`));
 
     await this.configureApprovals(true);
 
@@ -149,7 +159,17 @@ export class REPL {
 
   private async handleSlashCommand(raw: string): Promise<boolean> {
     const [command, ...rest] = raw.slice(1).split(' ');
-    switch (command.toLowerCase()) {
+    const commandName = command.toLowerCase();
+    
+    // Check for custom slash commands first
+    const customCommand = this.commandRegistry.get(commandName);
+    if (customCommand) {
+      await this.handleCustomCommand(customCommand, rest);
+      return false;
+    }
+    
+    // Built-in commands
+    switch (commandName) {
       case 'init':
         await this.handleInit();
         return false;
@@ -177,6 +197,18 @@ export class REPL {
         console.log(chalk.yellow(`\nUnknown slash command: ${raw}\n`));
         return false;
     }
+  }
+
+  private async handleCustomCommand(command: import('./commands/slash-commands.js').SlashCommand, args: string[]): Promise<void> {
+    const loader = new SlashCommandLoader();
+    const content = await loader.executeCommand(command, args, {
+      projectRoot: process.cwd(),
+      currentDir: process.cwd(),
+    });
+    
+    // Execute the command content as a prompt to the agent
+    console.log(chalk.gray(`\nExecuting custom command: /${command.name}\n`));
+    await this.processInput(content);
   }
 
   private async handleInit(): Promise<void> {

@@ -214,4 +214,106 @@ export const toolDefinitions: ToolDefinition[] = [
       return (stdout || '').concat(stderr || '').trim() || '(no output)';
     },
   },
+  {
+    name: 'verify_type_check',
+    description: 'Run TypeScript type checking on a specific file or the entire project.',
+    inputSchema: {
+      path: { description: 'Optional file path to check (if omitted, checks entire project)', required: false },
+    },
+    examples: ['{"path":"src/index.ts"}', '{}'],
+    async execute(input, ctx) {
+      const path = input.path ? requireString(input.path, 'path') : '';
+      const command = path ? `npx tsc --noEmit ${path}` : 'npx tsc --noEmit';
+      try {
+        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const output = (stdout || '').concat(stderr || '').trim();
+        if (!output) {
+          return '✅ Type check passed: No errors found.';
+        }
+        return `Type check results:\n${output}`;
+      } catch (error: unknown) {
+        const err = error as { stdout?: string; stderr?: string };
+        const output = (err.stdout || '').concat(err.stderr || '').trim();
+        return `❌ Type check failed:\n${output}`;
+      }
+    },
+  },
+  {
+    name: 'verify_lint',
+    description: 'Run linter (ESLint) on a specific file or the entire project.',
+    inputSchema: {
+      path: { description: 'Optional file path to lint (if omitted, lints entire project)', required: false },
+      fix: { description: 'Whether to auto-fix issues (default: true)', required: false },
+    },
+    examples: ['{"path":"src/index.ts","fix":true}', '{"path":"src/index.ts","fix":false}'],
+    async execute(input, ctx) {
+      const path = input.path ? requireString(input.path, 'path') : '';
+      const fix = input.fix !== false; // Default to true
+      const command = path
+        ? `npx eslint ${fix ? '--fix' : ''} ${path}`
+        : `npx eslint ${fix ? '--fix' : ''} .`;
+      try {
+        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const output = (stdout || '').concat(stderr || '').trim();
+        if (!output) {
+          return '✅ Lint check passed: No errors found.';
+        }
+        return `Lint results:\n${output}`;
+      } catch (error: unknown) {
+        const err = error as { stdout?: string; stderr?: string };
+        const output = (err.stdout || '').concat(err.stderr || '').trim();
+        return `❌ Lint check failed:\n${output}`;
+      }
+    },
+  },
+  {
+    name: 'verify_format',
+    description: 'Check or format code using Prettier.',
+    inputSchema: {
+      path: { description: 'Optional file path to format (if omitted, formats entire project)', required: false },
+      check: { description: 'Whether to only check formatting without fixing (default: false)', required: false },
+    },
+    examples: ['{"path":"src/index.ts"}', '{"path":"src/index.ts","check":true}'],
+    async execute(input, ctx) {
+      const path = input.path ? requireString(input.path, 'path') : '.';
+      const check = input.check === true;
+      const command = check ? `npx prettier --check ${path}` : `npx prettier --write ${path}`;
+      try {
+        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const output = (stdout || '').concat(stderr || '').trim();
+        if (!output) {
+          return check ? '✅ Format check passed: All files are formatted correctly.' : '✅ Code formatted successfully.';
+        }
+        return `Format results:\n${output}`;
+      } catch (error: unknown) {
+        const err = error as { stdout?: string; stderr?: string };
+        const output = (err.stdout || '').concat(err.stderr || '').trim();
+        return `❌ Format check failed:\n${output}`;
+      }
+    },
+  },
+  {
+    name: 'verify_test',
+    description: 'Run tests for a specific file or the entire test suite.',
+    inputSchema: {
+      path: { description: 'Optional test file path to run (if omitted, runs all tests)', required: false },
+    },
+    examples: ['{"path":"src/index.test.ts"}', '{}'],
+    async execute(input, ctx) {
+      const path = input.path ? requireString(input.path, 'path') : '';
+      const command = path ? `npm test -- ${path}` : 'npm test';
+      try {
+        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const output = (stdout || '').concat(stderr || '').trim();
+        if (!output) {
+          return '✅ Tests passed (no output).';
+        }
+        return `Test results:\n${output}`;
+      } catch (error: unknown) {
+        const err = error as { stdout?: string; stderr?: string };
+        const output = (err.stdout || '').concat(err.stderr || '').trim();
+        return `❌ Tests failed:\n${output}`;
+      }
+    },
+  },
 ];
