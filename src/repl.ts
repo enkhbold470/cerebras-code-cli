@@ -57,16 +57,40 @@ export class REPL {
                                                                              
 `;
     console.log(chalk.cyan(asciiArt));
-    console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode'));
+    console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode\n'));
     
     // Load slash commands
     await this.commandRegistry.load();
-    const customCommands = this.commandRegistry.getNames();
-    const commandList = customCommands.length > 0
-      ? `Built-in: /init, /status, /approvals, /model, /mention <path>, /compact, /quit. Custom: ${customCommands.map(c => `/${c}`).join(', ')}.`
-      : 'Commands: /init, /status, /approvals, /model, /mention <path>, /compact, /quit.';
+    const customCommands = this.commandRegistry.list();
     
-    console.log(chalk.gray(`${commandList} Type "help" for tips.\n`));
+    // Display available commands
+    console.log(chalk.yellow.bold('Available Commands:\n'));
+    
+    // Built-in commands with descriptions
+    const builtInCommands = [
+      { name: '/init', desc: 'scaffold AGENTS.md with Codex instructions' },
+      { name: '/status', desc: 'show current model, reasoning mode, approvals, mentions, and tool usage counts' },
+      { name: '/approvals', desc: 'choose which tool categories (write_file, run_bash) are auto-approved' },
+      { name: '/model', desc: 'switch reasoning style (fast, balanced, thorough)' },
+      { name: '/mention <path>', desc: 'highlight files/directories the agent must focus on (/mention clear resets)' },
+      { name: '/compact', desc: 'summarize recent turns and trim context to avoid token pressure' },
+      { name: '/quit', desc: 'exit and display the session summary' },
+    ];
+    
+    builtInCommands.forEach((cmd) => {
+      console.log(chalk.green(`  ${cmd.name.padEnd(20)}`) + chalk.gray(cmd.desc));
+    });
+    
+    // Custom commands if any
+    if (customCommands.length > 0) {
+      console.log(chalk.yellow('\nCustom Commands:\n'));
+      customCommands.forEach((cmd) => {
+        const desc = cmd.description || `Custom command: ${cmd.name}`;
+        console.log(chalk.green(`  /${cmd.name.padEnd(18)}`) + chalk.gray(desc));
+      });
+    }
+    
+    console.log(chalk.gray('\nType "help" for more tips or start chatting with the agent.\n'));
 
     await this.configureApprovals(true);
 
@@ -334,7 +358,7 @@ export class REPL {
   }
 
   private showHelp(): void {
-    console.log(chalk.cyan('\n📚 Agent Help'));
+    console.log(chalk.cyan('\nAgent Help'));
     console.log(
       chalk.gray(
         'You interact with a Claude Code-style agent. It plans work, calls tools, and summarizes results. Use slash commands for configuration.',
