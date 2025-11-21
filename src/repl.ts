@@ -1,5 +1,7 @@
 import inquirer from 'inquirer';
+import readline from 'readline';
 import chalk from 'chalk';
+import ora from 'ora';
 import { writeFile, access } from 'fs/promises';
 import { constants } from 'fs';
 import { join } from 'path';
@@ -31,6 +33,9 @@ export class REPL {
   private readonly sessionState: SessionState;
   private readonly tracker: SessionTracker;
   private readonly commandRegistry: CommandRegistry;
+  private rl: readline.Interface | null = null;
+  private isProcessing = false;
+  private pendingCommands: Set<string> = new Set();
   
   constructor(
     agent: AgenticLoop,
@@ -57,89 +62,180 @@ export class REPL {
                                                                              
 `;
     console.log(chalk.cyan(asciiArt));
-    console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode'));
+    console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode\n'));
     
     // Load slash commands
     await this.commandRegistry.load();
-    const customCommands = this.commandRegistry.getNames();
-    const commandList = customCommands.length > 0
-      ? `Built-in: /init, /status, /approvals, /model, /mention <path>, /compact, /quit. Custom: ${customCommands.map(c => `/${c}`).join(', ')}.`
-      : 'Commands: /init, /status, /approvals, /model, /mention <path>, /compact, /quit.';
+    const customCommands = this.commandRegistry.list();
     
-    console.log(chalk.gray(`${commandList} Type "help" for tips.\n`));
+    // Display available commands
+    console.log(chalk.yellow.bold('Available Commands:\n'));
+    
+    // Slash commands with descriptions
+    console.log(chalk.cyan('  Slash Commands:'));
+    const slashCommands = [
+      { name: '/init', desc: 'scaffold AGENTS.md with Codex instructions' },
+      { name: '/status', desc: 'show current model, reasoning mode, approvals, mentions, and tool usage counts' },
+      { name: '/approvals', desc: 'choose which tool categories (write_file, run_bash) are auto-approved' },
+      { name: '/model', desc: 'switch reasoning style (fast, balanced, thorough)' },
+      { name: '/mention <path>', desc: 'highlight files/directories the agent must focus on (/mention clear resets)' },
+      { name: '/compact', desc: 'summarize recent turns and trim context to avoid token pressure' },
+      { name: '/quit', desc: 'exit and display the session summary' },
+    ];
+    
+    slashCommands.forEach((cmd) => {
+      console.log(chalk.green(`    ${cmd.name.padEnd(20)}`) + chalk.gray(cmd.desc));
+    });
+    
+    // Non-slash commands
+    console.log(chalk.cyan('\n  Text Commands:'));
+    const textCommands = [
+      { name: 'help', desc: 'show help information and tips' },
+      { name: 'clear', desc: 'clear conversation history and reset system prompt' },
+      { name: 'exit', desc: 'exit the REPL (same as /quit)' },
+    ];
+    
+    textCommands.forEach((cmd) => {
+      console.log(chalk.green(`    ${cmd.name.padEnd(20)}`) + chalk.gray(cmd.desc));
+    });
+    
+    // Custom commands if any
+    if (customCommands.length > 0) {
+      console.log(chalk.cyan('\n  Custom Slash Commands:'));
+      customCommands.forEach((cmd) => {
+        const desc = cmd.description || `Custom command: ${cmd.name}`;
+        console.log(chalk.green(`    /${cmd.name.padEnd(18)}`) + chalk.gray(desc));
+      });
+    }
+    
+    console.log(chalk.gray('\nType "help" for more tips or start chatting with the agent.\n'));
 
     await this.configureApprovals(true);
 
-    try {
-      // Ensure the latest system prompt is active after approvals setup
-      this.agent.reset(this.buildPrompt());
+    // Ensure the latest system prompt is active after approvals setup
+    this.agent.reset(this.buildPrompt());
 
-      while (true) {
-        let input: string;
-        try {
-          const answer = await inquirer.prompt<{ input: string }>([
-            {
-              type: 'input',
-              name: 'input',
-              message: chalk.green('>'),
-              prefix: '',
-              transformer: (value: string) => {
-                // Show paste summary inline for large pastes
-                if (value.length >= LARGE_PASTE_THRESHOLD) {
-                  return chalk.gray(`[Pasted Content ${value.length} chars]`);
-                }
-                return value;
-              },
-            },
-          ]);
-          input = answer.input;
-        } catch (error) {
-          if ((error as Error).name === 'ExitPromptError') {
-            console.log('\n');
-            break;
-          }
-          throw error;
-        }
+    // Create readline interface for non-blocking input
+    this.rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: chalk.green('> '),
+    });
 
-        const trimmed = input.trim();
-        const lower = trimmed.toLowerCase();
+    return new Promise<void>((resolve) => {
+      this.rl!.on('line', async (input: string) => {
+        await this.handleInput(input);
+      });
 
-        if (!trimmed) continue;
+      this.rl!.on('close', () => {
+        this.printSessionSummary();
+        resolve();
+      });
 
-        // Show preview and confirm for large pastes before processing
-        if (this.isLargePaste(trimmed)) {
-          const shouldProcess = await this.previewAndConfirmPaste(trimmed);
-          if (!shouldProcess) {
-            console.log(chalk.gray('Paste cancelled.\n'));
-            continue;
-          }
-        }
+      // Handle Ctrl+C
+      this.rl!.on('SIGINT', () => {
+        console.log('\n');
+        this.rl!.close();
+      });
 
-        if (trimmed.startsWith('/')) {
-          const shouldExit = await this.handleSlashCommand(trimmed);
-          if (shouldExit) break;
-          continue;
-        }
+      this.rl!.prompt();
+    });
+  }
 
-        if (lower === 'exit' || lower === 'quit') {
-          break;
-        }
+  private async handleInput(input: string): Promise<void> {
+    const trimmed = input.trim();
+    const lower = trimmed.toLowerCase();
 
-        if (lower === 'clear') {
-          this.agent.reset(this.buildPrompt());
-          console.log(chalk.yellow('\n🔄 Conversation cleared; system prompt refreshed.\n'));
-          continue;
-        }
+    if (!trimmed) {
+      this.rl!.prompt();
+      return;
+    }
 
-        if (lower === 'help') {
-          this.showHelp();
-          continue;
-        }
-
-        await this.processInput(trimmed);
+    // Show preview and confirm for large pastes before processing
+    if (this.isLargePaste(trimmed)) {
+      const shouldProcess = await this.previewAndConfirmPaste(trimmed);
+      if (!shouldProcess) {
+        console.log(chalk.gray('Paste cancelled.\n'));
+        this.rl!.prompt();
+        return;
       }
+    }
+
+    // Handle slash commands (non-blocking)
+    if (trimmed.startsWith('/')) {
+      // Execute command asynchronously without blocking input
+      this.executeSlashCommandAsync(trimmed);
+      this.rl!.prompt();
+      return;
+    }
+
+    if (lower === 'exit' || lower === 'quit') {
+      this.rl!.close();
+      return;
+    }
+
+    if (lower === 'clear') {
+      this.agent.reset(this.buildPrompt());
+      console.log(chalk.yellow('\n🔄 Conversation cleared; system prompt refreshed.\n'));
+      this.rl!.prompt();
+      return;
+    }
+
+    if (lower === 'help') {
+      this.showHelp();
+      this.rl!.prompt();
+      return;
+    }
+
+    // Process agent input (non-blocking)
+    this.processInputAsync(trimmed);
+    this.rl!.prompt();
+  }
+
+  private async executeSlashCommandAsync(raw: string): Promise<void> {
+    const commandId = `${Date.now()}-${Math.random()}`;
+    this.pendingCommands.add(commandId);
+
+    try {
+      const shouldExit = await this.handleSlashCommand(raw);
+      if (shouldExit) {
+        this.rl!.close();
+      }
+    } catch (error) {
+      console.error(
+        chalk.red(
+          `\n❌ Command failed: ${error instanceof Error ? error.message : 'Unknown error'}\n`,
+        ),
+      );
     } finally {
-      this.printSessionSummary();
+      this.pendingCommands.delete(commandId);
+      if (this.pendingCommands.size === 0 && !this.isProcessing) {
+        this.rl!.prompt();
+      }
+    }
+  }
+
+  private async processInputAsync(input: string): Promise<void> {
+    if (this.isProcessing) {
+      console.log(chalk.yellow('\n⏳ Previous request still processing. Please wait...\n'));
+      this.rl!.prompt();
+      return;
+    }
+
+    this.isProcessing = true;
+    try {
+      await this.processInput(input);
+    } catch (error) {
+      console.error(
+        chalk.red(
+          `\n❌ Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}\nUse "/compact" or "/clear" if the context is inconsistent.\n`,
+        ),
+      );
+    } finally {
+      this.isProcessing = false;
+      if (this.pendingCommands.size === 0) {
+        this.rl!.prompt();
+      }
     }
   }
 
@@ -170,27 +266,65 @@ export class REPL {
     
     // Built-in commands
     switch (commandName) {
-      case 'init':
-        await this.handleInit();
+      case 'init': {
+        const spinner = ora('Checking AGENTS.md...').start();
+        try {
+          await this.handleInit();
+          spinner.succeed('AGENTS.md created successfully');
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          if (errorMessage.includes('already exists')) {
+            spinner.warn('AGENTS.md already exists');
+            console.log(chalk.gray('\nUse /status to review instructions.\n'));
+          } else {
+            spinner.fail(`Failed to create AGENTS.md: ${errorMessage}`);
+          }
+        }
         return false;
-      case 'status':
+      }
+      case 'status': {
+        const spinner = ora('Loading status...').start();
         this.printStatus();
+        spinner.stop();
         return false;
-      case 'approvals':
+      }
+      case 'approvals': {
+        // Pause readline for interactive prompt
+        this.rl!.pause();
         await this.configureApprovals(false);
         this.agent.reset(this.buildPrompt());
+        this.rl!.resume();
         return false;
-      case 'model':
+      }
+      case 'model': {
+        // Pause readline for interactive prompt
+        this.rl!.pause();
         await this.configureModel();
         this.agent.reset(this.buildPrompt());
+        this.rl!.resume();
         return false;
-      case 'mention':
-        await this.handleMention(rest.join(' '));
+      }
+      case 'mention': {
+        const spinner = ora('Updating mentions...').start();
+        try {
+          await this.handleMention(rest.join(' '));
+          spinner.succeed('Mentions updated');
+        } catch (error) {
+          spinner.fail(`Failed to update mentions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
         this.agent.reset(this.buildPrompt());
         return false;
-      case 'compact':
-        this.handleCompact();
+      }
+      case 'compact': {
+        const spinner = ora('Compacting conversation history...').start();
+        try {
+          this.handleCompact();
+          spinner.succeed('Conversation compacted');
+        } catch (error) {
+          spinner.fail(`Failed to compact: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
         return false;
+      }
       case 'quit':
         return true;
       default:
@@ -200,24 +334,31 @@ export class REPL {
   }
 
   private async handleCustomCommand(command: import('./commands/slash-commands.js').SlashCommand, args: string[]): Promise<void> {
-    const loader = new SlashCommandLoader();
-    const content = await loader.executeCommand(command, args, {
-      projectRoot: process.cwd(),
-      currentDir: process.cwd(),
-    });
-    
-    // Execute the command content as a prompt to the agent
-    console.log(chalk.gray(`\nExecuting custom command: /${command.name}\n`));
-    await this.processInput(content);
+    const spinner = ora(`Executing custom command: /${command.name}`).start();
+    try {
+      const loader = new SlashCommandLoader();
+      const content = await loader.executeCommand(command, args, {
+        projectRoot: process.cwd(),
+        currentDir: process.cwd(),
+      });
+      spinner.succeed(`Custom command /${command.name} loaded`);
+      
+      // Execute the command content as a prompt to the agent
+      await this.processInput(content);
+    } catch (error) {
+      spinner.fail(`Failed to execute /${command.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   private async handleInit(): Promise<void> {
     const agentsPath = join(process.cwd(), 'AGENTS.md');
     try {
       await access(agentsPath, constants.F_OK);
-      console.log(chalk.gray('\nAGENTS.md already exists. Use /status to review instructions.\n'));
-      return;
-    } catch {
+      throw new Error('AGENTS.md already exists. Use /status to review instructions.');
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already exists')) {
+        throw error;
+      }
       // File does not exist; proceed to create.
     }
 
@@ -231,7 +372,6 @@ export class REPL {
 `;
     await writeFile(agentsPath, template, 'utf-8');
     this.tracker.recordFileChange('AGENTS.md', null, template);
-    console.log(chalk.green('\nCreated AGENTS.md with default Codex instructions.\n'));
   }
 
   private printStatus(): void {
@@ -277,6 +417,7 @@ export class REPL {
   }
 
   private async configureModel(): Promise<void> {
+    // Note: readline should be paused before calling this if in REPL mode
     const { reasoning } = await inquirer.prompt<{ reasoning: ReasoningMode }>([
       {
         type: 'list',
@@ -302,18 +443,14 @@ export class REPL {
       this.sessionState.addMention(path);
     } else if (trimmed.toLowerCase() === 'clear') {
       this.sessionState.clearMentions();
-      console.log(chalk.gray('\nMention list cleared.\n'));
-      return;
     } else {
       this.sessionState.addMention(trimmed);
     }
-    console.log(chalk.gray(`\nMentions: ${this.sessionState.getMentions().join(', ')}\n`));
   }
 
   private handleCompact(): void {
     const summary = this.buildConversationSummary();
     this.agent.compactHistory(`Summary preserved:\n${summary}`);
-    console.log(chalk.gray('\nConversation compacted. Future turns will reference the stored summary.\n'));
   }
 
   private buildConversationSummary(): string {
@@ -334,7 +471,7 @@ export class REPL {
   }
 
   private showHelp(): void {
-    console.log(chalk.cyan('\n📚 Agent Help'));
+    console.log(chalk.cyan('\nAgent Help'));
     console.log(
       chalk.gray(
         'You interact with a Claude Code-style agent. It plans work, calls tools, and summarizes results. Use slash commands for configuration.',
