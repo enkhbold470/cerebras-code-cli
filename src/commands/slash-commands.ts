@@ -109,8 +109,34 @@ export class SlashCommandLoader {
 
     const metadata: CommandMetadata = {};
     const lines = frontmatter.split('\n');
+    let currentKey: string | null = null;
+    const arrayValues: string[] = [];
 
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      
+      // Skip empty lines
+      if (!trimmed) continue;
+
+      // Check if this is an array item (starts with -)
+      if (trimmed.startsWith('-')) {
+        const value = trimmed.slice(1).trim();
+        if (value) {
+          arrayValues.push(value);
+        }
+        continue;
+      }
+
+      // Process accumulated array values
+      if (currentKey && arrayValues.length > 0) {
+        if (currentKey === 'allowed-tools') {
+          metadata['allowed-tools'] = [...arrayValues];
+        }
+        arrayValues.length = 0;
+        currentKey = null;
+      }
+
       const colonIndex = line.indexOf(':');
       if (colonIndex === -1) continue;
 
@@ -118,11 +144,40 @@ export class SlashCommandLoader {
       const value = line.slice(colonIndex + 1).trim();
 
       if (key === 'allowed-tools') {
-        metadata['allowed-tools'] = value.split(',').map((t) => t.trim());
+        // Check if value is empty (array follows) or has comma-separated values
+        if (!value) {
+          currentKey = 'allowed-tools';
+        } else {
+          metadata['allowed-tools'] = value.split(',').map((t) => t.trim()).filter(Boolean);
+        }
       } else if (key === 'model') {
         metadata.model = value;
       } else if (key === 'hints') {
-        metadata.hints = value;
+        // Handle multi-line hints
+        if (value) {
+          metadata.hints = value;
+        } else {
+          // Multi-line hint - collect until next key
+          const hintLines: string[] = [];
+          for (let j = i + 1; j < lines.length; j++) {
+            const nextLine = lines[j].trim();
+            if (nextLine && !nextLine.includes(':')) {
+              hintLines.push(nextLine);
+            } else {
+              break;
+            }
+          }
+          if (hintLines.length > 0) {
+            metadata.hints = hintLines.join(' ');
+          }
+        }
+      }
+    }
+
+    // Process any remaining array values
+    if (currentKey && arrayValues.length > 0) {
+      if (currentKey === 'allowed-tools') {
+        metadata['allowed-tools'] = [...arrayValues];
       }
     }
 

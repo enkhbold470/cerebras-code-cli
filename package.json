@@ -12,7 +12,10 @@
     "dev": "tsx src/index.ts",
     "clean": "del-cli lib",
     "prepack": "npm run clean && npm run build",
-    "test": "tsx src/index.ts -p 'test prompt'"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "ai",
@@ -42,8 +45,10 @@
   "devDependencies": {
     "@types/inquirer": "^9.0.9",
     "@types/node": "^24.10.1",
+    "@vitest/ui": "^4.0.12",
     "del-cli": "^7.0.0",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.12"
   }
 }
