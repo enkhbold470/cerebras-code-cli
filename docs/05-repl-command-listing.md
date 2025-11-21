@@ -20,34 +20,45 @@ Commands: /init, /status, /approvals, /model, /mention <path>, /compact, /quit. 
 ```
 
 **After:**
-The REPL now displays a formatted, multi-line command list with descriptions:
+The REPL now displays a formatted, multi-line command list with descriptions organized by category:
 
 ```
 Available Commands:
 
-  /init                 scaffold AGENTS.md with Codex instructions
-  /status               show current model, reasoning mode, approvals, mentions, and tool usage counts
-  /approvals            choose which tool categories (write_file, run_bash) are auto-approved
-  /model                switch reasoning style (fast, balanced, thorough)
-  /mention <path>        highlight files/directories the agent must focus on (/mention clear resets)
-  /compact              summarize recent turns and trim context to avoid token pressure
-  /quit                 exit and display the session summary
+  Slash Commands:
+    /init                 scaffold AGENTS.md with Codex instructions
+    /status               show current model, reasoning mode, approvals, mentions, and tool usage counts
+    /approvals            choose which tool categories (write_file, run_bash) are auto-approved
+    /model                switch reasoning style (fast, balanced, thorough)
+    /mention <path>        highlight files/directories the agent must focus on (/mention clear resets)
+    /compact              summarize recent turns and trim context to avoid token pressure
+    /quit                 exit and display the session summary
 
-Custom Commands:
-  /custom-command       Custom command description (if any exist)
+  Text Commands:
+    help                  show help information and tips
+    clear                 clear conversation history and reset system prompt
+    exit                  exit the REPL (same as /quit)
+
+  Custom Slash Commands:
+    /custom-command       Custom command description (if any exist)
 
 Type "help" for more tips or start chatting with the agent.
 ```
 
 ### Key Features
 
-1. **Built-in Commands Section**
+1. **Slash Commands Section**
    - Lists all 7 built-in slash commands with their descriptions
    - Command names are color-coded in green for visibility
    - Descriptions are in gray for readability
    - Proper alignment using `padEnd()` for consistent formatting
 
-2. **Custom Commands Section**
+2. **Text Commands Section**
+   - Lists all 3 non-slash text commands (`help`, `clear`, `exit`)
+   - These commands don't require a leading slash
+   - Provides alternative ways to interact with the REPL
+
+3. **Custom Commands Section**
    - Dynamically loads custom commands from `~/.cerebras/commands/`
    - Only displays if custom commands exist
    - Shows command name and description from frontmatter metadata
@@ -70,9 +81,33 @@ The implementation:
 ## Benefits
 
 1. **Better Discoverability** — Users immediately see all available commands when starting the REPL
-2. **Clear Documentation** — Each command includes a description matching the README.md documentation
-3. **Custom Command Support** — Custom commands are automatically included in the listing
-4. **Professional Appearance** — Formatted, color-coded output improves the CLI experience
+2. **Complete Command Coverage** — Shows both slash commands (`/init`, `/status`, etc.) and text commands (`help`, `clear`, `exit`)
+3. **Clear Documentation** — Each command includes a description matching the README.md documentation
+4. **Organized Display** — Commands are grouped by type (Slash Commands, Text Commands, Custom Commands) for better readability
+5. **Custom Command Support** — Custom commands are automatically included in the listing
+6. **Professional Appearance** — Formatted, color-coded output improves the CLI experience
+
+## Commands Included
+
+### Slash Commands (7 total)
+- `/init` — scaffold AGENTS.md
+- `/status` — show session status
+- `/approvals` — configure auto-approvals
+- `/model` — switch reasoning style
+- `/mention <path>` — highlight files/directories
+- `/compact` — summarize and trim context
+- `/quit` — exit with summary
+
+### Text Commands (3 total)
+- `help` — show help information
+- `clear` — clear conversation history
+- `exit` — exit the REPL
+
+### Custom Commands
+- Dynamically loaded from `~/.cerebras/commands/*.md`
+- Displayed only if custom commands exist
+
+**Note:** Tools (like `read_file`, `write_file`, `list_directory`, `search_text`, `run_bash`, and verification tools) are internal agent capabilities and are used automatically when chatting with the agent. They are not displayed as user commands since they're invoked by the agent, not directly by users.
 
 ## Testing
 
