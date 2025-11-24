@@ -52,7 +52,7 @@ const options = program.opts<CliOptions>();
 
 async function main(): Promise<void> {
   try {
-    // Handle list-models option
+    // Handle list-models option first
     if (options.listModels) {
       const { listAvailableModels } = await import('./config.js');
       const models = listAvailableModels();
