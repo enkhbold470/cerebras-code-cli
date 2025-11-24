@@ -131,7 +131,9 @@ This file stores **global settings** that apply across all projects. These setti
     "llama-3.3-70b",
     "llama3.1-8b",
     "qwen-3-32b",
-    "qwen-3-235b-a22b-instruct",
+    "qwen-3-235b-a22b-instruct-2507",
+    "qwen-3-235b-a22b-thinking-2507",
+    "zai-glm-4.6",
     "gpt-oss-120b"
   ]
 }
@@ -177,7 +179,9 @@ Cerebras CLI supports the following models optimized for different use cases:
 | **llama-3.3-70b** | 64K (free), 128K (paid) | ~2,100 | General coding, fast responses (default) |
 | **llama3.1-8b** | 8K (free), 128K (paid) | ~2,600+ | Lightweight tasks, autocomplete |
 | **qwen-3-32b** | 40K | ~1,400 | Balanced performance |
-| **qwen-3-235b-a22b-instruct** | 64K (free), 131K (paid) | ~1,400 | Large context, codebase analysis |
+| **qwen-3-235b-a22b-instruct-2507** | 65K (free), 131K (paid) | ~1,400 | Large context, codebase analysis (preview) |
+| **qwen-3-235b-a22b-thinking-2507** | 65K (free), 131K (paid) | ~1,700 | Advanced reasoning with thinking chains (preview) |
+| **zai-glm-4.6** | Standard | ~1,000 | Advanced coding and reasoning (preview) |
 | **gpt-oss-120b** | Standard | ~3,000 | Complex reasoning, architecture |
 
 ### Rate Limits (Free Tier)
@@ -265,7 +269,7 @@ You can specify which AI model to use with the `--model` parameter or `CEREBRAS_
 ccode --model llama-3.3-70b          # Default: Fast, general purpose
 ccode --model llama3.1-8b             # Lightweight, fastest
 ccode --model qwen-3-32b              # Balanced performance
-ccode --model qwen-3-235b-a22b-instruct  # Large context (131K tokens)
+ccode --model qwen-3-235b-a22b-instruct-2507  # Large context (131K tokens)
 ccode --model gpt-oss-120b            # Complex reasoning
 ```
 
@@ -292,7 +296,7 @@ Choose the right model for your task:
 
 - **Fast iteration / autocomplete**: `llama3.1-8b` (~2,600 t/s)
 - **General coding tasks**: `llama-3.3-70b` (~2,100 t/s) - **Recommended default**
-- **Large codebase analysis**: `qwen-3-235b-a22b-instruct` (131K context)
+- **Large codebase analysis**: `qwen-3-235b-a22b-instruct-2507` (131K context)
 - **Complex reasoning**: `gpt-oss-120b` (~3,000 t/s)
 
 ### Command Line Options
@@ -336,11 +340,11 @@ Cerebras will automatically load and follow these instructions when working in y
 
 Cerebras models support large context windows:
 
-- **Free tier**: Up to 64K tokens (llama-3.3-70b, qwen-3-235b)
-- **Paid tier**: Up to 131K tokens (qwen-3-235b-a22b-instruct)
+- **Free tier**: Up to 65K tokens (llama-3.3-70b, qwen-3-235b-a22b-instruct-2507)
+- **Paid tier**: Up to 131K tokens (qwen-3-235b-a22b-instruct-2507)
 - **Lightweight**: 8K tokens (llama3.1-8b free tier)
 
-The CLI automatically manages context windows and will truncate if needed. For large codebases, use `qwen-3-235b-a22b-instruct` with its 131K context window.
+The CLI automatically manages context windows and will truncate if needed. For large codebases, use `qwen-3-235b-a22b-instruct-2507` with its 131K context window.
 
 ## Morph Fast Apply (Optional)
 

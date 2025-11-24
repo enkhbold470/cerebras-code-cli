@@ -32,8 +32,10 @@ const DEFAULT_USER_SETTINGS: Partial<UserSettings> = {
     "llama-3.3-70b",
     "llama3.1-8b",
     "qwen-3-32b",
-    "qwen-3-235b-a22b-instruct",
+    "qwen-3-235b-a22b-instruct-2507",
+    "qwen-3-235b-a22b-thinking-2507",
     "gpt-oss-120b",
+    "zai-glm-4.6",
   ],
 };
 
