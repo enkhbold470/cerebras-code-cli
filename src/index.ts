@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { getCerebrasConfig, loadProjectConfig } from './config.js';
+import { getCerebrasConfig, loadProjectConfig, getModelConfig } from './config.js';
 import { CerebrasClient } from './cerebras-client.js';
 import { FileManager } from './file-manager.js';
 import { REPL } from './repl.js';
@@ -13,6 +13,7 @@ import { SessionState } from './session/state.js';
 import { SessionTracker } from './session/tracker.js';
 import { SlashCommandLoader } from './commands/slash-commands.js';
 import { CommandRegistry } from './commands/registry.js';
+import { QuotaTracker } from './quota-tracker.js';
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'false';
 const isDebug = process.env.NODE_ENV === 'false';
@@ -26,6 +27,8 @@ interface CliOptions {
   yolo?: boolean;
   'dangerously-skip-permissions'?: boolean;
   'output-format'?: 'text' | 'stream-json';
+  model?: string;
+  listModels?: boolean;
 }
 
 const program = new Command();
@@ -41,14 +44,35 @@ program
   .option('--yolo', 'YOLO mode: auto-approve all operations (use with caution)')
   .option('--dangerously-skip-permissions', 'Skip permission prompts (alias for --yolo)')
   .option('--output-format <format>', 'Output format: text or stream-json', 'text')
+  .option('-m, --model <model>', 'Select model to use')
+  .option('--list-models', 'List all available models and their limits')
   .parse(process.argv);
 
 const options = program.opts<CliOptions>();
 
 async function main(): Promise<void> {
   try {
-    const cerebrasConfig = getCerebrasConfig();
+    // Handle list-models option first
+    if (options.listModels) {
+      const { listAvailableModels } = await import('./config.js');
+      const models = listAvailableModels();
+      console.log(chalk.cyan('\nAvailable Models:\n'));
+      for (const modelName of models) {
+        const config = getModelConfig(modelName);
+        if (config) {
+          console.log(chalk.green(`  ${modelName}`));
+          console.log(chalk.gray(`    Max Context Length: ${config.maxContextLength.toLocaleString()} tokens`));
+          console.log(chalk.gray(`    Request Quota: ${config.quota.requests.minute}/min, ${config.quota.requests.hour}/hour, ${config.quota.requests.day}/day`));
+          console.log(chalk.gray(`    Token Quota: ${config.quota.tokens.minute.toLocaleString()}/min, ${config.quota.tokens.hour.toLocaleString()}/hour, ${config.quota.tokens.day.toLocaleString()}/day`));
+          console.log('');
+        }
+      }
+      return;
+    }
+
+    const cerebrasConfig = getCerebrasConfig(options.model);
     const projectConfig = await loadProjectConfig();
+    const modelConfig = getModelConfig(cerebrasConfig.model);
 
     if (isDebug) {
       console.log('[debug] CLI options:', options);
@@ -57,10 +81,14 @@ async function main(): Promise<void> {
         ...cerebrasConfig,
         apiKey: '***redacted***',
       });
+      if (modelConfig) {
+        console.log('[debug] Model config:', modelConfig);
+      }
     }
 
     const tracker = new SessionTracker();
-    const client = new CerebrasClient(cerebrasConfig, tracker);
+    const quotaTracker = modelConfig ? new QuotaTracker(modelConfig) : undefined;
+    const client = new CerebrasClient(cerebrasConfig, tracker, quotaTracker);
     const sessionState = new SessionState(cerebrasConfig.model, options.system);
     
     // Set permission mode based on CLI options
@@ -119,7 +147,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    const repl = new REPL(agent, systemPromptBuilder, sessionState, tracker, commandRegistry);
+    const repl = new REPL(agent, systemPromptBuilder, sessionState, tracker, client, quotaTracker, commandRegistry);
     await repl.start();
   } catch (error) {
     console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
@@ -146,4 +174,13 @@ async function handlePromptMode(
   }
 }
 
-await main();
+// Handle top-level await properly
+try {
+  await main();
+} catch (error) {
+  console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
+  if (process.env.NODE_ENV === 'debug' && error instanceof Error && error.stack) {
+    console.error(chalk.gray(error.stack));
+  }
+  process.exit(1);
+}

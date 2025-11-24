@@ -83,6 +83,7 @@ File edits also return inline `diff` blocks (with `+`/`-` prefixes) so you can i
 - `/status` – show current model, reasoning mode, approvals, mentions, and tool usage counts.
 - `/approvals` – choose which tool categories (`write_file`, `run_bash`) are auto-approved.
 - `/model` – switch reasoning style (fast, balanced, thorough).
+- `/switch-model` – switch to a different model (with quota limits).
 - `/mention <path>` – highlight files/directories the agent must focus on (`/mention clear` resets).
 - `/compact` – summarize recent turns and trim context to avoid token pressure.
 - `/quit` – exit and display the session summary.
@@ -95,6 +96,7 @@ Every session exit (including `Ctrl+C`) prints a report similar to Claude Code�
 Via `.env` or shell:
 ```bash
 CEREBRAS_API_KEY=your-api-key
+CEREBRAS_MODEL=qwen-3-235b-a22b-instruct-2507  # Optional: select model
 CEREBRAS_MAX_TOKENS=4096
 CEREBRAS_TEMPERATURE=0.7
 ```
@@ -170,8 +172,56 @@ ccode --dangerously-skip-permissions -p "generate tests for src/utils.ts"
 - ✓ Not touching production systems
 - ✓ Can review output after completion
 
-## Model Policy
-The CLI is pinned to the Cerebras-served model `qwen-3-235b-a22b-instruct-2507` for every request to guarantee consistent behavior and latency. CLI flags and project configs no longer switch models; if you need a different backend, fork the repo and adjust `DEFAULT_MODEL` in `src/config.ts`.
+## Model Selection
+
+The CLI supports multiple models with automatic quota tracking to prevent exceeding limits. You can select a model via:
+
+1. **CLI flag**: `--model <model-name>` or `-m <model-name>`
+2. **Environment variable**: `CEREBRAS_MODEL=<model-name>`
+3. **REPL command**: `/switch-model` (interactive model selection)
+
+### Available Models
+
+List all available models and their limits:
+```bash
+ccode --list-models
+```
+
+Available models:
+- `gpt-oss-120b` - 65,536 context, 30 req/min, 900 req/hour, 14,400 req/day
+- `llama-3.3-70b` - 65,536 context, 30 req/min, 900 req/hour, 14,400 req/day
+- `llama3.1-8b` - 8,192 context, 30 req/min, 900 req/hour, 14,400 req/day
+- `qwen-3-235b-a22b-instruct-2507` - 65,536 context, 30 req/min, 900 req/hour, 1,440 req/day (default)
+- `qwen-3-32b` - 65,536 context, 30 req/min, 900 req/hour, 14,400 req/day
+- `zai-glm-4.6` - 64,000 context, 10 req/min, 100 req/hour, 100 req/day
+
+### Quota Protection
+
+The CLI automatically tracks and enforces quota limits:
+- **Request quotas**: Limits on number of API calls per minute/hour/day
+- **Token quotas**: Limits on total tokens used per minute/hour/day
+- **Context length**: Validates requests don't exceed model's max context length
+
+If a request would exceed limits, the CLI will show an error message indicating which limit was reached and suggest waiting or reducing request size.
+
+### Examples
+
+```bash
+# Use a specific model via CLI flag
+ccode --model llama-3.3-70b -p "explain async/await"
+
+# Set default model via environment variable
+export CEREBRAS_MODEL=gpt-oss-120b
+ccode -p "review my code"
+
+# Switch models in REPL
+ccode
+> /switch-model
+# Interactive prompt to select model
+```
+
+### Model Policy
+The CLI defaults to `qwen-3-235b-a22b-instruct-2507` but supports runtime model selection. All models have quota tracking enabled to prevent exceeding API limits.
 
 ## Development
 ```bash
