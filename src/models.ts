@@ -17,7 +17,92 @@ export interface ModelConfig {
   quota: QuotaLimits;
 }
 
-export const AVAILABLE_MODELS: Record<string, ModelConfig> = {
+// OpenAI models
+const OPENAI_MODELS: Record<string, ModelConfig> = {
+  'gpt-4o': {
+    name: 'gpt-4o',
+    maxContextLength: 128000,
+    quota: {
+      requests: {
+        minute: 500,
+        hour: 10000,
+        day: 100000,
+      },
+      tokens: {
+        minute: 1000000,
+        hour: 10000000,
+        day: 100000000,
+      },
+    },
+  },
+  'gpt-4o-mini': {
+    name: 'gpt-4o-mini',
+    maxContextLength: 128000,
+    quota: {
+      requests: {
+        minute: 500,
+        hour: 10000,
+        day: 100000,
+      },
+      tokens: {
+        minute: 1000000,
+        hour: 10000000,
+        day: 100000000,
+      },
+    },
+  },
+  'gpt-4-turbo': {
+    name: 'gpt-4-turbo',
+    maxContextLength: 128000,
+    quota: {
+      requests: {
+        minute: 500,
+        hour: 10000,
+        day: 100000,
+      },
+      tokens: {
+        minute: 1000000,
+        hour: 10000000,
+        day: 100000000,
+      },
+    },
+  },
+  'gpt-4': {
+    name: 'gpt-4',
+    maxContextLength: 8192,
+    quota: {
+      requests: {
+        minute: 500,
+        hour: 10000,
+        day: 100000,
+      },
+      tokens: {
+        minute: 1000000,
+        hour: 10000000,
+        day: 100000000,
+      },
+    },
+  },
+  'gpt-3.5-turbo': {
+    name: 'gpt-3.5-turbo',
+    maxContextLength: 16385,
+    quota: {
+      requests: {
+        minute: 500,
+        hour: 10000,
+        day: 100000,
+      },
+      tokens: {
+        minute: 1000000,
+        hour: 10000000,
+        day: 100000000,
+      },
+    },
+  },
+};
+
+// Cerebras models
+const CEREBRAS_MODELS: Record<string, ModelConfig> = {
   'gpt-oss-120b': {
     name: 'gpt-oss-120b',
     maxContextLength: 65536,
@@ -116,8 +201,21 @@ export const AVAILABLE_MODELS: Record<string, ModelConfig> = {
   },
 };
 
+// Combine all models
+export const AVAILABLE_MODELS: Record<string, ModelConfig> = {
+  ...OPENAI_MODELS,
+  ...CEREBRAS_MODELS,
+};
+
 export function getModelConfig(modelName: string): ModelConfig | null {
   return AVAILABLE_MODELS[modelName] || null;
+}
+
+export function getModelProvider(modelName: string): 'openai' | 'cerebras' {
+  if (modelName in OPENAI_MODELS) {
+    return 'openai';
+  }
+  return 'cerebras';
 }
 
 export function listAvailableModels(): string[] {

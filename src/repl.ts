@@ -12,8 +12,10 @@ import { SlashCommandLoader } from './commands/slash-commands.js';
 import { CommandRegistry } from './commands/registry.js';
 import { CerebrasClient } from './cerebras-client.js';
 import { QuotaTracker } from './quota-tracker.js';
-import { listAvailableModels, getModelConfig, isValidModel } from './models.js';
-import { getCerebrasConfig } from './config.js';
+import { listAvailableModels, getModelConfig, isValidModel, getModelProvider } from './models.js';
+import { getCerebrasConfig, getOpenAIConfig } from './config.js';
+import { OpenAIProvider } from './providers/openai.js';
+import type { LLMProvider } from './providers/base.js';
 import { debugLog, debugError } from './utils/debug.js';
 
 // Command definitions for preview
@@ -56,7 +58,7 @@ export class REPL {
   private readonly sessionState: SessionState;
   private readonly tracker: SessionTracker;
   private readonly commandRegistry: CommandRegistry;
-  private client: CerebrasClient;
+  private client: LLMProvider;
   private quotaTracker?: QuotaTracker;
   private rl: readline.Interface | null = null;
   private isProcessing = false;
@@ -67,7 +69,7 @@ export class REPL {
     buildPrompt: PromptBuilder,
     sessionState: SessionState,
     tracker: SessionTracker,
-    client: CerebrasClient,
+    client: LLMProvider,
     quotaTracker?: QuotaTracker,
     commandRegistry?: CommandRegistry,
   ) {
@@ -578,8 +580,7 @@ export class REPL {
         throw new Error(`Invalid model: ${modelName}`);
       }
 
-      // Get new config
-      const newConfig = getCerebrasConfig(modelName);
+      // Get model config
       const modelConfig = getModelConfig(modelName);
 
       if (!modelConfig) {
@@ -589,8 +590,17 @@ export class REPL {
       // Create new quota tracker
       const newQuotaTracker = new QuotaTracker(modelConfig);
 
-      // Create new client
-      const newClient = new CerebrasClient(newConfig, this.tracker, newQuotaTracker);
+      // Create new client based on provider
+      const provider = getModelProvider(modelName);
+      let newClient: LLMProvider;
+      
+      if (provider === 'openai') {
+        const openaiConfig = getOpenAIConfig(modelName);
+        newClient = new OpenAIProvider(openaiConfig);
+      } else {
+        const cerebrasConfig = getCerebrasConfig(modelName);
+        newClient = new CerebrasClient(cerebrasConfig, this.tracker, newQuotaTracker);
+      }
 
       // Update session state
       this.sessionState.setModelName(modelName);

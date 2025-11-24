@@ -2,8 +2,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { getCerebrasConfig, loadProjectConfig, getModelConfig } from './config.js';
+import { getCerebrasConfig, getOpenAIConfig, getLLMConfig, loadProjectConfig, getModelConfig } from './config.js';
+import { isValidModel, getModelProvider } from './models.js';
 import { CerebrasClient } from './cerebras-client.js';
+import { OpenAIProvider } from './providers/openai.js';
+import type { LLMProvider } from './providers/base.js';
 import { FileManager } from './file-manager.js';
 import { REPL } from './repl.js';
 import { ToolRegistry } from './tools/registry.js';
@@ -71,17 +74,19 @@ async function main(): Promise<void> {
       return;
     }
 
-    const cerebrasConfig = getCerebrasConfig(options.model);
+    // Determine which provider to use based on model or API keys
+    const selectedModel = options.model || process.env.CEREBRAS_MODEL || process.env.OPENAI_MODEL || 'qwen-3-235b-a22b-instruct-2507';
+    const provider = isValidModel(selectedModel) ? getModelProvider(selectedModel) : 
+                     (process.env.OPENAI_API_KEY ? 'openai' : 'cerebras');
+    
     const projectConfig = await loadProjectConfig();
-    const modelConfig = getModelConfig(cerebrasConfig.model);
+    const modelConfig = getModelConfig(selectedModel);
 
     if (isDebug) {
       console.log('[debug] CLI options:', options);
       console.log('[debug] Project config:', projectConfig);
-      console.log('[debug] Cerebras config:', {
-        ...cerebrasConfig,
-        apiKey: '***redacted***',
-      });
+      console.log('[debug] Provider:', provider);
+      console.log('[debug] Selected model:', selectedModel);
       if (modelConfig) {
         console.log('[debug] Model config:', modelConfig);
       }
@@ -89,8 +94,18 @@ async function main(): Promise<void> {
 
     const tracker = new SessionTracker();
     const quotaTracker = modelConfig ? new QuotaTracker(modelConfig) : undefined;
-    const client = new CerebrasClient(cerebrasConfig, tracker, quotaTracker);
-    const sessionState = new SessionState(cerebrasConfig.model, options.system);
+    
+    // Create appropriate client based on provider
+    let client: LLMProvider;
+    if (provider === 'openai') {
+      const openaiConfig = getOpenAIConfig(options.model);
+      client = new OpenAIProvider(openaiConfig);
+    } else {
+      const cerebrasConfig = getCerebrasConfig(options.model);
+      client = new CerebrasClient(cerebrasConfig, tracker, quotaTracker);
+    }
+    
+    const sessionState = new SessionState(selectedModel, options.system);
     
     // Set permission mode based on CLI options
     if (options.yolo || options['dangerously-skip-permissions']) {

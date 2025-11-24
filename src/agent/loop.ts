@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import ora from 'ora';
-import type { CerebrasClient } from '../cerebras-client.js';
+import type { LLMProvider } from '../providers/base.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { Message } from '../types.js';
 import { parseAssistantResponse } from './parser.js';
@@ -15,13 +15,13 @@ interface AgentLoopOptions {
 
 export class AgenticLoop {
   private messages: Message[] = [];
-  private readonly client: CerebrasClient;
+  private readonly client: LLMProvider;
   private readonly tools: ToolRegistry;
   private readonly maxIterations: number;
   private currentSystemPrompt: string;
 
   constructor(
-    client: CerebrasClient,
+    client: LLMProvider,
     tools: ToolRegistry,
     initialSystemPrompt: string,
     options?: AgentLoopOptions,
@@ -38,7 +38,7 @@ export class AgenticLoop {
     this.messages = [{ role: 'system', content: systemPrompt }];
   }
 
-  updateClient(client: CerebrasClient): void {
+  updateClient(client: LLMProvider): void {
     (this as any).client = client;
   }
 

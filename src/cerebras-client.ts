@@ -5,10 +5,12 @@ import type {
   StreamChunk,
 } from './types.js';
 import type { SessionTracker } from './session/tracker.js';
+import type { LLMProvider } from './providers/base.js';
 import { QuotaTracker } from './quota-tracker.js';
 import { getModelConfig } from './models.js';
+import { debugLog } from './utils/debug.js';
 
-export class CerebrasClient {
+export class CerebrasClient implements LLMProvider {
   private config: CerebrasConfig;
   private debug: boolean;
   private tracker?: SessionTracker;
@@ -24,7 +26,7 @@ export class CerebrasClient {
   /**
    * Estimate token count for messages (rough approximation: ~4 chars per token)
    */
-  private estimateTokens(messages: Message[], maxTokens?: number): number {
+  estimateTokens(messages: Message[], maxTokens?: number): number {
     const totalChars = messages.reduce((sum, msg) => sum + msg.content.length, 0);
     const estimatedInputTokens = Math.ceil(totalChars / 4);
     const estimatedOutputTokens = maxTokens || this.config.maxTokens || 4096;
@@ -52,8 +54,8 @@ export class CerebrasClient {
     };
 
     if (this.debug) {
-      console.log('[cerebras-client] POST', url);
-      console.log('[cerebras-client] Estimated tokens:', estimatedTokens);
+      debugLog('[cerebras-client] POST', url);
+      debugLog('[cerebras-client] Estimated tokens:', estimatedTokens);
     }
 
     const requestStart = Date.now();
