@@ -7,24 +7,25 @@ import { diffLines } from 'diff';
 import type { ToolDefinition } from './types.js';
 
 const execAsync = promisify(execCb);
-const DEFAULT_BASH_PATTERNS = [
-  'npm*',
-  'yarn*',
-  'pnpm*',
-  'npx*',
-  'git status*',
-  'git diff*',
-  'git rev-parse*',
-  'ls*',
-  'pwd',
-  'cat*',
-  'node*',
-  'tsc*',
-  'tsx*',
-  'python*',
-  'pytest*',
-  'go*',
+
+// Safe command whitelist - concise but comprehensive
+const SAFE_BASH_COMMANDS = [
+  // Package managers
+  'npm*', 'yarn*', 'pnpm*', 'bun*',
+  // Node tools
+  'npx*', 'node*', 'tsc*', 'tsx*',
+  // Git (read-only and safe operations)
+  'git status*', 'git diff*', 'git log*', 'git show*', 'git rev-parse*', 'git branch*', 'git remote*',
+  // File operations (read-only)
+  'ls*', 'pwd', 'cd*', 'cat*', 'cp*', 'mv*', 'head*', 'tail*', 'wc*', 'find*', 'grep*', 'rm*', 'echo*', 'touch*', 'chmod*', 'chown*', 'stat*', 'du*', 'df*', 'which*', 'whoami', 'date*', 'uname*',
+  // Language runtimes
+  'python*', 'python3*', 'pytest*', 'go*', 'rustc*', 'cargo*',
+  // Build tools
+  'make*', 'cmake*',
 ];
+
+// Default timeout: 60 seconds
+const DEFAULT_TIMEOUT = 60000;
 
 const TEXT_EXTENSIONS = new Set([
   '.ts',
@@ -197,21 +198,45 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'run_bash',
-    description: 'Execute a safe shell command (npm, git status, ls, etc.). Returns stdout/stderr.',
+    description: 'Execute a safe shell command (npm, git status, ls, etc.). Returns stdout/stderr. All commands have a 60s timeout.',
     inputSchema: {
       command: { description: 'Command to execute', required: true },
+      timeout: { description: 'Optional timeout in ms (default: 60000)', required: false },
     },
     examples: ['{"command":"npm run build"}', '{"command":"git status"}'],
     async execute(input, ctx) {
       const command = requireString(input.command, 'command');
-      const allowed = DEFAULT_BASH_PATTERNS.some((pattern) => minimatch(command, pattern));
+      const timeout = input.timeout ? requireNumber(input.timeout, 'timeout') : DEFAULT_TIMEOUT;
+      
+      // Check whitelist
+      const allowed = SAFE_BASH_COMMANDS.some((pattern) => minimatch(command, pattern));
       if (!allowed) {
         throw new Error(
-          `Command "${command}" is not allowed. Allowed patterns: ${DEFAULT_BASH_PATTERNS.join(', ')}`,
+          `Command "${command}" is not allowed. Safe commands: npm, yarn, pnpm, git (read-only), ls, cat, node, npx, etc.`,
         );
       }
-      const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
-      return (stdout || '').concat(stderr || '').trim() || '(no output)';
+      
+      // Execute with timeout using Promise.race
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Command timed out after ${timeout}ms`)), timeout);
+      });
+      
+      try {
+        const { stdout, stderr } = await Promise.race([
+          execAsync(command, {
+            cwd: ctx.projectRoot,
+            maxBuffer: 10 * 1024 * 1024, // 10MB max output
+          }),
+          timeoutPromise,
+        ]) as { stdout: string; stderr: string };
+        return (stdout || '').concat(stderr || '').trim() || '(no output)';
+      } catch (error: any) {
+        if (error.message?.includes('timed out')) {
+          throw error;
+        }
+        const output = (error.stdout || '').concat(error.stderr || '').trim();
+        throw new Error(output || error.message || 'Command failed');
+      }
     },
   },
   {
@@ -225,13 +250,22 @@ export const toolDefinitions: ToolDefinition[] = [
       const path = input.path ? requireString(input.path, 'path') : '';
       const command = path ? `npx tsc --noEmit ${path}` : 'npx tsc --noEmit';
       try {
-        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout')), DEFAULT_TIMEOUT);
+        });
+        const { stdout, stderr } = await Promise.race([
+          execAsync(command, { cwd: ctx.projectRoot }),
+          timeoutPromise,
+        ]) as { stdout: string; stderr: string };
         const output = (stdout || '').concat(stderr || '').trim();
         if (!output) {
           return '✅ Type check passed: No errors found.';
         }
         return `Type check results:\n${output}`;
-      } catch (error: unknown) {
+      } catch (error: any) {
+        if (error.message === 'Timeout') {
+          return `❌ Type check timed out after ${DEFAULT_TIMEOUT}ms`;
+        }
         const err = error as { stdout?: string; stderr?: string };
         const output = (err.stdout || '').concat(err.stderr || '').trim();
         return `❌ Type check failed:\n${output}`;
@@ -253,13 +287,22 @@ export const toolDefinitions: ToolDefinition[] = [
         ? `npx eslint ${fix ? '--fix' : ''} ${path}`
         : `npx eslint ${fix ? '--fix' : ''} .`;
       try {
-        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout')), DEFAULT_TIMEOUT);
+        });
+        const { stdout, stderr } = await Promise.race([
+          execAsync(command, { cwd: ctx.projectRoot }),
+          timeoutPromise,
+        ]) as { stdout: string; stderr: string };
         const output = (stdout || '').concat(stderr || '').trim();
         if (!output) {
           return '✅ Lint check passed: No errors found.';
         }
         return `Lint results:\n${output}`;
-      } catch (error: unknown) {
+      } catch (error: any) {
+        if (error.message === 'Timeout') {
+          return `❌ Lint check timed out after ${DEFAULT_TIMEOUT}ms`;
+        }
         const err = error as { stdout?: string; stderr?: string };
         const output = (err.stdout || '').concat(err.stderr || '').trim();
         return `❌ Lint check failed:\n${output}`;
@@ -279,13 +322,22 @@ export const toolDefinitions: ToolDefinition[] = [
       const check = input.check === true;
       const command = check ? `npx prettier --check ${path}` : `npx prettier --write ${path}`;
       try {
-        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout')), DEFAULT_TIMEOUT);
+        });
+        const { stdout, stderr } = await Promise.race([
+          execAsync(command, { cwd: ctx.projectRoot }),
+          timeoutPromise,
+        ]) as { stdout: string; stderr: string };
         const output = (stdout || '').concat(stderr || '').trim();
         if (!output) {
           return check ? '✅ Format check passed: All files are formatted correctly.' : '✅ Code formatted successfully.';
         }
         return `Format results:\n${output}`;
-      } catch (error: unknown) {
+      } catch (error: any) {
+        if (error.message === 'Timeout') {
+          return `❌ Format check timed out after ${DEFAULT_TIMEOUT}ms`;
+        }
         const err = error as { stdout?: string; stderr?: string };
         const output = (err.stdout || '').concat(err.stderr || '').trim();
         return `❌ Format check failed:\n${output}`;
@@ -303,13 +355,22 @@ export const toolDefinitions: ToolDefinition[] = [
       const path = input.path ? requireString(input.path, 'path') : '';
       const command = path ? `npm test -- ${path}` : 'npm test';
       try {
-        const { stdout, stderr } = await execAsync(command, { cwd: ctx.projectRoot });
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout')), DEFAULT_TIMEOUT);
+        });
+        const { stdout, stderr } = await Promise.race([
+          execAsync(command, { cwd: ctx.projectRoot }),
+          timeoutPromise,
+        ]) as { stdout: string; stderr: string };
         const output = (stdout || '').concat(stderr || '').trim();
         if (!output) {
           return '✅ Tests passed (no output).';
         }
         return `Test results:\n${output}`;
-      } catch (error: unknown) {
+      } catch (error: any) {
+        if (error.message === 'Timeout') {
+          return `❌ Tests timed out after ${DEFAULT_TIMEOUT}ms`;
+        }
         const err = error as { stdout?: string; stderr?: string };
         const output = (err.stdout || '').concat(err.stderr || '').trim();
         return `❌ Tests failed:\n${output}`;

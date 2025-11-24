@@ -9,7 +9,7 @@ import type { OpenAIConfig } from './providers/openai.js';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 
-const DEFAULT_MODEL = 'qwen-3-235b-a22b-instruct-2507';
+const DEFAULT_MODEL = 'gpt-4o-mini';
 
 export async function loadProjectConfig(): Promise<ProjectConfig> {
   const configPath = join(process.cwd(), '.cerebrasrc');

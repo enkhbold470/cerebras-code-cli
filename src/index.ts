@@ -290,6 +290,7 @@ function buildSystemPrompt(
   registry: ToolRegistry,
   projectConfig: ProjectConfig,
   sessionState: SessionState,
+  contextManager?: ContextManager,
 ): string {
   const projectInstructions = projectConfig.instructions
     ? `# PROJECT CONTEXT\n${projectConfig.instructions}\n`
@@ -310,6 +311,9 @@ function buildSystemPrompt(
   
   const approvals = `# TOOL APPROVAL POLICY\n${sessionState.approvalsSummary()}\nEnforced by CLI. Do not attempt to bypass host restrictions.`;
 
+  // Build structured context if context manager is available
+  const structuredContext = contextManager ? contextManager.buildStructuredContext() : '';
+
   return [
     ROLE_AND_IDENTITY.trim(),
     CORE_CAPABILITIES.trim(),
@@ -324,11 +328,351 @@ function buildSystemPrompt(
     approvals,
     mentionBlock.trim(),
     projectInstructions.trim(),
+    structuredContext, // Structured context with XML tagging (placed before supplemental)
     supplemental.trim(),
     '# FINAL INSTRUCTIONS\nAlways cite the tools you used in the final summary (e.g., read_file(src/index.ts), run_bash(npm run build)).',
   ]
     .filter(Boolean)
     .join('\n\n');
+}
+
+// ============================================================================
+// CONTEXT MANAGER (Claude Code-inspired)
+// ============================================================================
+
+interface ContextItem {
+  type: 'file' | 'history' | 'tool_output' | 'config' | 'user_paste';
+  priority: number; // Higher = stays in context longer
+  tokens: number;
+  lastAccessed: Date;
+  content: string;
+  source?: string; // File path or identifier
+  index?: number; // For XML tagging
+}
+
+interface ContextStats {
+  totalTokens: number;
+  itemsByType: Record<string, number>;
+  oldestItem: Date | null;
+  newestItem: Date | null;
+}
+
+class ContextManager {
+  private items: ContextItem[] = [];
+  private readonly maxTokens: number;
+  private readonly reservedForHistory: number;
+  private readonly reservedForOutput: number;
+  private readonly compressionThreshold: number = 0.9; // Compress at 90% capacity
+
+  constructor(maxTokens: number = 4096) {
+    this.maxTokens = maxTokens;
+    // Reserve proportional amounts: 30% for history, 10% for output
+    this.reservedForHistory = Math.floor(maxTokens * 0.3);
+    this.reservedForOutput = Math.floor(maxTokens * 0.1);
+  }
+
+  /**
+   * Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+   */
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  /**
+   * Add item to context with priority-based management
+   */
+  addToContext(
+    content: string,
+    type: ContextItem['type'],
+    source?: string,
+    priority?: number,
+  ): void {
+    const tokens = this.estimateTokens(content);
+    const availableTokens = this.maxTokens - this.reservedForHistory - this.reservedForOutput;
+
+    // Check if we need to compress/evict
+    const currentUsage = this.getCurrentUsage();
+    if (currentUsage + tokens > availableTokens * this.compressionThreshold) {
+      this.compressOrEvict(tokens);
+    }
+
+    // Determine priority based on type if not provided
+    const itemPriority = priority ?? this.getDefaultPriority(type);
+
+    const item: ContextItem = {
+      type,
+      priority: itemPriority,
+      tokens,
+      lastAccessed: new Date(),
+      content,
+      source,
+      index: this.items.length + 1,
+    };
+
+    this.items.push(item);
+    this.sortByPriority();
+  }
+
+  /**
+   * Get default priority by type (higher = more important)
+   */
+  private getDefaultPriority(type: ContextItem['type']): number {
+    const priorities: Record<ContextItem['type'], number> = {
+      config: 100, // Highest - project configs stay forever
+      file: 50, // High - recently read files
+      user_paste: 40, // High - user-provided context
+      history: 30, // Medium - conversation history
+      tool_output: 10, // Low - can be compressed/evicted
+    };
+    return priorities[type] ?? 20;
+  }
+
+  /**
+   * Sort items by priority (highest first), then by last accessed
+   */
+  private sortByPriority(): void {
+    this.items.sort((a, b) => {
+      if (b.priority !== a.priority) {
+        return b.priority - a.priority;
+      }
+      return b.lastAccessed.getTime() - a.lastAccessed.getTime();
+    });
+  }
+
+  /**
+   * Compress or evict items when approaching limits
+   */
+  private compressOrEvict(requiredTokens: number): void {
+    const availableTokens = this.maxTokens - this.reservedForHistory - this.reservedForOutput;
+    const targetUsage = availableTokens * this.compressionThreshold - requiredTokens;
+    let currentUsage = this.getCurrentUsage();
+
+    // Keep config items (highest priority)
+    const configItems = this.items.filter((item) => item.type === 'config');
+    const configTokens = configItems.reduce((sum, item) => sum + item.tokens, 0);
+
+    // Keep recent history (last 5-10 messages)
+    const historyItems = this.items
+      .filter((item) => item.type === 'history')
+      .sort((a, b) => b.lastAccessed.getTime() - a.lastAccessed.getTime())
+      .slice(0, 10);
+    const historyTokens = historyItems.reduce((sum, item) => sum + item.tokens, 0);
+
+    // Keep recently accessed files (last 5)
+    const fileItems = this.items
+      .filter((item) => item.type === 'file')
+      .sort((a, b) => b.lastAccessed.getTime() - a.lastAccessed.getTime())
+      .slice(0, 5);
+    const fileTokens = fileItems.reduce((sum, item) => sum + item.tokens, 0);
+
+    const keepTokens = configTokens + historyTokens + fileTokens;
+
+    // Evict lowest priority items
+    const itemsToKeep = new Set([
+      ...configItems.map((item) => item.index!),
+      ...historyItems.map((item) => item.index!),
+      ...fileItems.map((item) => item.index!),
+    ]);
+
+    // Compress old tool outputs
+    const toolOutputs = this.items.filter(
+      (item) => item.type === 'tool_output' && !itemsToKeep.has(item.index!),
+    );
+    for (const item of toolOutputs) {
+      if (currentUsage > targetUsage) {
+        // Compress tool output (keep summary)
+        const summary = this.compressToolOutput(item.content);
+        item.content = summary;
+        item.tokens = this.estimateTokens(summary);
+        currentUsage = currentUsage - item.tokens + this.estimateTokens(summary);
+      }
+    }
+
+    // Evict lowest priority items if still over limit
+    this.items = this.items.filter((item) => {
+      if (itemsToKeep.has(item.index!)) {
+        return true;
+      }
+      if (currentUsage <= targetUsage) {
+        return true;
+      }
+      currentUsage -= item.tokens;
+      return false;
+    });
+
+    // Re-index items
+    this.items.forEach((item, index) => {
+      item.index = index + 1;
+    });
+  }
+
+  /**
+   * Compress tool output to summary
+   */
+  private compressToolOutput(content: string): string {
+    // Keep first and last 200 chars, summarize middle
+    if (content.length <= 500) {
+      return content;
+    }
+    const start = content.substring(0, 200);
+    const end = content.substring(content.length - 200);
+    return `${start}\n\n[... ${content.length - 400} characters compressed ...]\n\n${end}`;
+  }
+
+  /**
+   * Get current token usage
+   */
+  getCurrentUsage(): number {
+    return this.items.reduce((sum, item) => sum + item.tokens, 0);
+  }
+
+  /**
+   * Get context statistics
+   */
+  getStats(): ContextStats {
+    const itemsByType: Record<string, number> = {};
+    let oldestItem: Date | null = null;
+    let newestItem: Date | null = null;
+
+    for (const item of this.items) {
+      itemsByType[item.type] = (itemsByType[item.type] || 0) + 1;
+      if (!oldestItem || item.lastAccessed < oldestItem) {
+        oldestItem = item.lastAccessed;
+      }
+      if (!newestItem || item.lastAccessed > newestItem) {
+        newestItem = item.lastAccessed;
+      }
+    }
+
+    return {
+      totalTokens: this.getCurrentUsage(),
+      itemsByType,
+      oldestItem,
+      newestItem,
+    };
+  }
+
+  /**
+   * Build structured context with XML tagging (Claude Code pattern)
+   */
+  buildStructuredContext(): string {
+    if (this.items.length === 0) {
+      return '';
+    }
+
+    const sections: string[] = [];
+
+    // Group by type and priority
+    const configItems = this.items.filter((item) => item.type === 'config');
+    const fileItems = this.items.filter((item) => item.type === 'file');
+    const pasteItems = this.items.filter((item) => item.type === 'user_paste');
+    const historyItems = this.items.filter((item) => item.type === 'history');
+    const toolItems = this.items.filter((item) => item.type === 'tool_output');
+
+    // Configuration context (highest priority, at top)
+    if (configItems.length > 0) {
+      sections.push('# CONFIGURATION / PROJECT CONTEXT');
+      for (const item of configItems) {
+        sections.push(this.formatAsXML(item));
+      }
+    }
+
+    // Long documents / user pastes (placed at top per Claude Code pattern)
+    if (pasteItems.length > 0) {
+      sections.push('# USER PROVIDED CONTEXT');
+      for (const item of pasteItems) {
+        sections.push(this.formatAsXML(item));
+      }
+    }
+
+    // Recent file contents
+    if (fileItems.length > 0) {
+      sections.push('# RECENT FILE CONTENTS');
+      for (const item of fileItems.slice(0, 10)) {
+        sections.push(this.formatAsXML(item));
+      }
+    }
+
+    // Tool outputs (compressed if needed)
+    if (toolItems.length > 0) {
+      sections.push('# TOOL OUTPUTS');
+      for (const item of toolItems.slice(0, 5)) {
+        sections.push(this.formatAsXML(item));
+      }
+    }
+
+    // Recent conversation history (last 5-10 messages)
+    if (historyItems.length > 0) {
+      sections.push('# RECENT CONVERSATION');
+      for (const item of historyItems.slice(0, 10)) {
+        sections.push(this.formatAsXML(item));
+      }
+    }
+
+    return sections.join('\n\n');
+  }
+
+  /**
+   * Format item as XML (Claude Code pattern - improves retrieval by 30%)
+   */
+  private formatAsXML(item: ContextItem): string {
+    const source = item.source || item.type;
+    return `<document index="${item.index}">
+  <source>${this.escapeXML(source)}</source>
+  <type>${item.type}</type>
+  <document_content>
+${this.escapeXML(item.content)}
+  </document_content>
+</document>`;
+  }
+
+  /**
+   * Escape XML special characters
+   */
+  private escapeXML(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  /**
+   * Mark item as accessed (update LRU)
+   */
+  markAccessed(index: number): void {
+    const item = this.items.find((i) => i.index === index);
+    if (item) {
+      item.lastAccessed = new Date();
+      this.sortByPriority();
+    }
+  }
+
+  /**
+   * Clear all context
+   */
+  clear(): void {
+    this.items = [];
+  }
+
+  /**
+   * Get items for compression summary
+   */
+  getCompressionSummary(): string {
+    const stats = this.getStats();
+    const summary = [
+      `Context Manager Status:`,
+      `  Total tokens: ${stats.totalTokens.toLocaleString()} / ${this.maxTokens.toLocaleString()}`,
+      `  Items by type:`,
+      ...Object.entries(stats.itemsByType).map(
+        ([type, count]) => `    ${type}: ${count}`,
+      ),
+      `  Oldest item: ${stats.oldestItem?.toISOString() || 'N/A'}`,
+      `  Newest item: ${stats.newestItem?.toISOString() || 'N/A'}`,
+    ].join('\n');
+    return summary;
+  }
 }
 
 // ============================================================================
@@ -347,18 +691,26 @@ class AgenticLoop {
   private readonly tools: ToolRegistry;
   private readonly maxIterations: number;
   private currentSystemPrompt: string;
+  private readonly contextManager: ContextManager;
+  private isCancelled = false;
 
   constructor(
     client: LLMProvider,
     tools: ToolRegistry,
     initialSystemPrompt: string,
+    maxContextLength?: number,
     options?: AgentLoopOptions,
   ) {
     this.client = client;
     this.tools = tools;
     this.maxIterations = options?.maxIterations ?? 20;
     this.currentSystemPrompt = initialSystemPrompt;
+    // Initialize context manager with model's max context length (default 4096)
+    this.contextManager = new ContextManager(maxContextLength || 4096);
     this.messages.push({ role: 'system', content: initialSystemPrompt });
+    
+    // Add system prompt to context as config
+    this.contextManager.addToContext(initialSystemPrompt, 'config', 'system_prompt', 100);
   }
 
   reset(systemPrompt: string): void {
@@ -380,92 +732,207 @@ class AgenticLoop {
     (this as any).client = client;
   }
 
+  cancel(): void {
+    this.isCancelled = true;
+  }
+
+  resetCancellation(): void {
+    this.isCancelled = false;
+  }
+
   async run(userPrompt: string, options?: AgentLoopOptions): Promise<string> {
     debugLog('AgenticLoop.run() called');
     debugLog('userPrompt length:', userPrompt.length);
     debugLog('Current message count before adding user prompt:', this.messages.length);
+    
+    // Reset cancellation flag at start of new run
+    this.isCancelled = false;
+    
     if (options?.systemPrompt) {
       debugLog('Resetting with system prompt');
       this.reset(options.systemPrompt);
     }
+    
+    // Add user prompt to context manager (check if it's a large paste)
+    const isLargePaste = userPrompt.length > 500;
+    if (isLargePaste) {
+      this.contextManager.addToContext(userPrompt, 'user_paste', 'user_input', 40);
+    } else {
+      this.contextManager.addToContext(userPrompt, 'history', 'user_message', 30);
+    }
+    
     this.messages.push({ role: 'user', content: userPrompt });
     debugLog('Message count after adding user prompt:', this.messages.length);
-    const spinner = ora('Agent thinking...').start();
-    debugLog('Spinner started');
+    
+    // Enable streaming by default in production (unless explicitly disabled)
+    const shouldStream = options?.stream !== false;
+    const spinner = shouldStream ? null : ora('Agent thinking...').start();
+    if (spinner) debugLog('Spinner started');
 
     try {
       let iteration = 0;
       let lastResponse = '';
 
       while (iteration++ < this.maxIterations) {
+        // Check for cancellation
+        if (this.isCancelled) {
+          debugLog('Agent cancelled by user');
+          if (spinner) spinner.stop();
+          throw new Error('Agent stopped by user');
+        }
+        
         debugLog('Agent loop iteration:', iteration);
         debugLog('Calling client.chat with', this.messages.length, 'messages in history');
-        const response = (await this.client.chat(this.messages, options?.stream ?? false)) as string;
-        debugLog('client.chat completed, response length:', response.length);
-        lastResponse = response;
+        
+        // Handle streaming vs non-streaming
+        if (shouldStream) {
+          if (spinner) spinner.stop();
+          console.log(chalk.cyan('\n🤔 Agent thinking...\n'));
+          const streamResponse = await this.client.chat(this.messages, true) as AsyncGenerator<string>;
+          let streamedContent = '';
+          process.stdout.write(chalk.blueBright('Agent: '));
+          
+          for await (const chunk of streamResponse) {
+            // Check for cancellation during streaming
+            if (this.isCancelled) {
+              process.stdout.write('\n');
+              throw new Error('Agent stopped by user');
+            }
+            process.stdout.write(chunk);
+            streamedContent += chunk;
+          }
+          process.stdout.write('\n\n');
+          
+          lastResponse = streamedContent;
+        } else {
+          const response = (await this.client.chat(this.messages, false)) as string;
+          debugLog('client.chat completed, response length:', response.length);
+          lastResponse = response;
+        }
+        
         debugLog('Parsing response...');
-        const parsed = parseAssistantResponse(response);
+        const parsed = parseAssistantResponse(lastResponse);
         debugLog('Parsed result:', parsed ? `type=${parsed.type}` : 'null');
 
         if (!parsed) {
           debugLog('No parse result, returning raw response');
-          spinner.stop();
-          this.messages.push({ role: 'assistant', content: response });
+          if (!shouldStream && spinner) spinner.stop();
+          this.messages.push({ role: 'assistant', content: lastResponse });
+          this.contextManager.addToContext(lastResponse, 'history', 'assistant_message', 30);
           debugLog('Message count after adding assistant response:', this.messages.length);
-          return response.trim();
+          return lastResponse.trim();
         }
 
         if (parsed.type === 'final') {
           debugLog('Final response type, returning');
-          spinner.stop();
+          if (!shouldStream && spinner) spinner.stop();
           this.messages.push({ role: 'assistant', content: parsed.message });
+          this.contextManager.addToContext(parsed.message, 'history', 'assistant_message', 30);
           debugLog('Message count after adding final response:', this.messages.length);
           return parsed.message.trim();
         }
 
         if (parsed.type === 'tool_calls') {
           debugLog('Tool calls detected, count:', parsed.calls.length);
-          spinner.text = `Running ${parsed.calls.length} tool${parsed.calls.length > 1 ? 's' : ''}...`;
+          
+          // Display tool calls being executed
+          console.log(chalk.yellow(`\n🔧 Executing ${parsed.calls.length} tool${parsed.calls.length > 1 ? 's' : ''}:\n`));
+          for (const call of parsed.calls) {
+            const toolName = call.name.replace(/_/g, ' ');
+            const toolInput = call.input as any;
+            let toolDesc = toolName;
+            
+            // Add context about what the tool is doing
+            if (call.name === 'read_file' && toolInput?.file_path) {
+              toolDesc = `${toolName}: ${toolInput.file_path}`;
+            } else if (call.name === 'write_file' && toolInput?.file_path) {
+              toolDesc = `${toolName}: ${toolInput.file_path}`;
+            } else if (call.name === 'run_bash' && toolInput?.command) {
+              const cmd = toolInput.command.substring(0, 50);
+              toolDesc = `${toolName}: ${cmd}${toolInput.command.length > 50 ? '...' : ''}`;
+            } else if (call.name === 'grep' && toolInput?.pattern) {
+              toolDesc = `${toolName}: "${toolInput.pattern}"`;
+            } else if (call.name === 'glob' && toolInput?.pattern) {
+              toolDesc = `${toolName}: ${toolInput.pattern}`;
+            }
+            
+            console.log(chalk.gray(`  • ${toolDesc}`));
+          }
+          console.log('');
+          
+          if (!shouldStream && spinner) spinner.text = `Running ${parsed.calls.length} tool${parsed.calls.length > 1 ? 's' : ''}...`;
           this.messages.push({ role: 'assistant', content: lastResponse });
+          this.contextManager.addToContext(lastResponse, 'history', 'assistant_message', 30);
           debugLog('Added assistant response with tool calls to history');
           
           for (const call of parsed.calls) {
+            // Check for cancellation before each tool
+            if (this.isCancelled) {
+              debugLog('Agent cancelled during tool execution');
+              if (spinner) spinner.stop();
+              throw new Error('Agent stopped by user');
+            }
+            
             debugLog('Executing tool:', call.name, 'id:', call.id);
+            const toolSpinner = ora(`  Executing ${call.name.replace(/_/g, ' ')}...`).start();
+            
             try {
               const result = await this.tools.execute(call);
-              debugLog('Tool execution completed, result length:', result?.length || 0);
+              const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+              debugLog('Tool execution completed, result length:', resultStr.length);
+              
+              // Show tool result summary
+              const resultPreview = resultStr.length > 200 
+                ? resultStr.substring(0, 200) + '...' 
+                : resultStr;
+              toolSpinner.succeed(`  ✓ ${call.name.replace(/_/g, ' ')} completed`);
+              
+              if (resultStr.length > 200) {
+                console.log(chalk.gray(`    Output: ${resultPreview} (${resultStr.length} chars)\n`));
+              }
+              
+              // Add tool result to context manager
               const toolResultMessage = [
                 `TOOL_RESULT ${call.id}`,
                 `name: ${call.name}`,
                 'output:',
-                result,
+                resultStr,
               ].join('\n');
+              
+              // If it's a file read, add as file type; otherwise tool_output
+              const contextType = call.name === 'read_file' ? 'file' : 'tool_output';
+              const source = (call.input as any)?.file_path || (call.input as any)?.path || call.name || 'unknown';
+              this.contextManager.addToContext(resultStr, contextType, source, contextType === 'file' ? 50 : 10);
+              
               this.messages.push({ role: 'user', content: toolResultMessage });
               debugLog('Added tool result to history');
             } catch (err) {
               debugError('Tool execution error:', err);
               const errorMessage = err instanceof Error ? err.message : 'Unknown tool error';
+              toolSpinner.fail(`  ✗ ${call.name.replace(/_/g, ' ')} failed: ${errorMessage}`);
+              const errorContent = `TOOL_RESULT ${call.id}\nname: ${call.name}\nerror: ${errorMessage}`;
+              this.contextManager.addToContext(errorContent, 'tool_output', call.name, 10);
               this.messages.push({
                 role: 'user',
-                content: `TOOL_RESULT ${call.id}\nname: ${call.name}\nerror: ${errorMessage}`,
+                content: errorContent,
               });
               debugLog('Added tool error to history');
             }
           }
           
           debugLog('Message count after tool execution:', this.messages.length);
-          spinner.text = 'Agent thinking...';
+          if (!shouldStream && spinner) spinner.text = 'Agent thinking...';
           debugLog('Continuing loop after tool execution');
           continue;
         }
       }
 
       debugLog('Max iterations exceeded');
-      spinner.stop();
+      if (spinner) spinner.stop();
       throw new Error('Exceeded maximum tool iterations.');
     } catch (error) {
       debugError('Error in AgenticLoop.run():', error);
-      spinner.stop();
+      if (spinner) spinner.stop();
       const message = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Agent loop failed: ${message}`);
     }
@@ -473,17 +940,37 @@ class AgenticLoop {
 
   compactHistory(note?: string): void {
     const systemMessage = this.messages.find((msg) => msg.role === 'system')?.content ?? this.currentSystemPrompt;
+    
+    // Build compression summary from context manager
+    const contextSummary = this.contextManager.getCompressionSummary();
+    const compressionNote = note || [
+      'Conversation compacted manually; request a recap from the user if additional context is needed.',
+      '',
+      contextSummary,
+    ].join('\n');
+    
     this.messages = [
       { role: 'system', content: systemMessage },
       {
         role: 'assistant',
-        content: note || 'Conversation compacted manually; request a recap from the user if additional context is needed.',
+        content: compressionNote,
       },
     ];
+    
+    // Clear non-config items from context manager, keep config
+    const configItems = this.contextManager['items'].filter((item: ContextItem) => item.type === 'config');
+    this.contextManager.clear();
+    for (const item of configItems) {
+      this.contextManager.addToContext(item.content, 'config', item.source, item.priority);
+    }
   }
 
   getHistory(): Message[] {
     return [...this.messages];
+  }
+
+  getContextManager(): ContextManager {
+    return this.contextManager;
   }
 }
 
@@ -508,7 +995,7 @@ const TEXT_COMMANDS = [
   { name: 'exit', desc: 'exit the REPL (same as /quit)' },
 ];
 
-type PromptBuilder = () => string;
+type PromptBuilder = (contextManager?: ContextManager) => string;
 
 const APPROVAL_CHOICES: { name: string; value: ApprovalSubject }[] = [
   { name: 'Write files (write_file)', value: 'write_file' },
@@ -535,6 +1022,11 @@ class REPL {
   private isProcessing = false;
   private pendingCommands: Set<string> = new Set();
   private isPaused = false;
+  private pasteBuffer: string[] = [];
+  private pasteTimeout: NodeJS.Timeout | null = null;
+  private isBufferingPaste = false;
+  private sigintCount = 0;
+  private sigintTimer: NodeJS.Timeout | null = null;
   
   constructor(
     agent: AgenticLoop,
@@ -579,7 +1071,8 @@ class REPL {
     debugLog('Approvals configured');
 
     debugLog('Resetting agent with system prompt...');
-    this.agent.reset(this.buildPrompt());
+    const contextManager = this.agent.getContextManager();
+    this.agent.reset(this.buildPrompt(contextManager));
     debugLog('Agent reset complete');
 
     debugLog('Creating readline interface...');
@@ -599,8 +1092,8 @@ class REPL {
       
       this.rl!.on('line', (input: string) => {
         debugLog('Line event received, input:', input.substring(0, 50));
-        this.handleInput(input).catch((error) => {
-          debugError('Error in handleInput:', error);
+        this.handleLineInput(input).catch((error) => {
+          debugError('Error in handleLineInput:', error);
           console.error(
             chalk.red(
               `\n❌ Input handling error: ${error instanceof Error ? error.message : 'Unknown error'}\n`,
@@ -626,15 +1119,83 @@ class REPL {
       });
 
       this.rl!.on('SIGINT', () => {
-        debugLog('SIGINT received');
-        console.log('\n');
-        this.rl!.close();
+        this.handleSIGINT();
       });
 
       debugLog('Showing initial prompt');
       this.rl!.prompt();
       debugLog('REPL.start() promise setup complete, waiting for events...');
     });
+  }
+
+  private async handleLineInput(input: string): Promise<void> {
+    // If we're already processing, buffer and show wait message
+    if (this.isProcessing) {
+      if (!this.isBufferingPaste) {
+        this.isBufferingPaste = true;
+        this.pasteBuffer = [];
+        console.log(chalk.yellow('\n⏳ Previous request still processing. Please wait...\n'));
+      }
+      this.pasteBuffer.push(input);
+      return;
+    }
+
+    // If we're already buffering a paste, add this line and reset timeout
+    if (this.isBufferingPaste) {
+      this.pasteBuffer.push(input);
+      // Reset timeout - wait for more lines
+      if (this.pasteTimeout) {
+        clearTimeout(this.pasteTimeout);
+      }
+      this.pasteTimeout = setTimeout(() => {
+        this.finalizePaste();
+      }, 150); // 150ms timeout - if no new lines in 150ms, process the paste
+      return;
+    }
+
+    // Check if this is a large single line (likely a paste)
+    const trimmed = input.trim();
+    if (trimmed.length > LARGE_PASTE_THRESHOLD) {
+      // Large single line - treat as paste immediately
+      this.displayPasteSummary(trimmed);
+      await this.handleInput(trimmed);
+      return;
+    }
+
+    // Start buffering - this might be the start of a multi-line paste
+    this.isBufferingPaste = true;
+    this.pasteBuffer = [input];
+    
+    // Set timeout to finalize if no more lines come
+    this.pasteTimeout = setTimeout(() => {
+      this.finalizePaste();
+    }, 150); // 150ms timeout - if no new lines in 150ms, process as single line
+  }
+
+  private async finalizePaste(): Promise<void> {
+    if (this.pasteTimeout) {
+      clearTimeout(this.pasteTimeout);
+      this.pasteTimeout = null;
+    }
+
+    if (this.pasteBuffer.length === 0) {
+      this.isBufferingPaste = false;
+      return;
+    }
+
+    const completeInput = this.pasteBuffer.join('\n');
+    const trimmed = completeInput.trim();
+    const bufferLength = this.pasteBuffer.length;
+    this.pasteBuffer = [];
+    this.isBufferingPaste = false;
+
+    // If we have multiple lines or large content, show paste summary
+    if (bufferLength > 1 || trimmed.length > LARGE_PASTE_THRESHOLD) {
+      this.displayPasteSummary(trimmed);
+    }
+
+    // Process the complete paste
+    await this.handleInput(trimmed);
   }
 
   private async handleInput(input: string): Promise<void> {
@@ -646,16 +1207,6 @@ class REPL {
       debugLog('Empty input, reprompting');
       this.rl!.prompt();
       return;
-    }
-
-    if (this.isLargePaste(trimmed)) {
-      debugLog('Large paste detected');
-      const shouldProcess = await this.previewAndConfirmPaste(trimmed);
-      if (!shouldProcess) {
-        console.log(chalk.gray('Paste cancelled.\n'));
-        this.rl!.prompt();
-        return;
-      }
     }
 
     if (trimmed.startsWith('/')) {
@@ -672,7 +1223,8 @@ class REPL {
 
     if (lower === 'clear') {
       debugLog('Clear command detected');
-      this.agent.reset(this.buildPrompt());
+      const contextManager = this.agent.getContextManager();
+      this.agent.reset(this.buildPrompt(contextManager));
       console.log(chalk.yellow('\n🔄 Conversation cleared; system prompt refreshed.\n'));
       this.rl!.prompt();
       return;
@@ -761,20 +1313,74 @@ class REPL {
   private async processInput(input: string): Promise<void> {
     debugLog('processInput called');
     try {
-      debugLog('Calling agent.run...');
-      const response = await this.agent.run(input);
+      debugLog('Calling agent.run with streaming enabled...');
+      // Enable streaming by default in REPL mode
+      const response = await this.agent.run(input, { stream: true });
       debugLog('agent.run completed, response length:', response.length);
-      console.log(chalk.blueBright('\nAgent:\n'));
-      console.log(`${response}\n`);
+      
+      // Only print completion message if response wasn't already streamed
+      if (response && response.trim()) {
+        console.log(chalk.green('\n✅ Agent completed\n'));
+      }
       debugLog('Response printed');
     } catch (error) {
       debugError('Error in processInput:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Don't show error if it was cancelled by user
+      if (errorMessage === 'Agent stopped by user') {
+        return; // Already handled in handleSIGINT
+      }
+      
       console.error(
         chalk.red(
-          `\n❌ Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}\nUse "/compact" or "/clear" if the context is inconsistent.\n`,
+          `\n❌ Agent failed: ${errorMessage}\nUse "/compact" or "/clear" if the context is inconsistent.\n`,
         ),
       );
       throw error;
+    }
+  }
+
+  private handleSIGINT(): void {
+    debugLog('SIGINT received, count:', this.sigintCount);
+    
+    // Reset timer if it exists
+    if (this.sigintTimer) {
+      clearTimeout(this.sigintTimer);
+      this.sigintTimer = null;
+    }
+    
+    this.sigintCount++;
+    
+    if (this.sigintCount === 1) {
+      // First Ctrl+C: Stop the agent
+      if (this.isProcessing) {
+        console.log(chalk.yellow('\n\n⏹️  Stopping agent...\n'));
+        this.agent.cancel();
+        this.isProcessing = false;
+        console.log(chalk.green('✓ Agent stopped\n'));
+        
+        // Reset counter after 2 seconds
+        this.sigintTimer = setTimeout(() => {
+          this.sigintCount = 0;
+        }, 2000);
+        
+        // Reprompt
+        if (this.rl && process.stdin.readable && !process.stdin.destroyed) {
+          this.rl.prompt();
+        }
+      } else {
+        // Not processing, go straight to exit
+        this.sigintCount = 2;
+        this.handleSIGINT();
+      }
+    } else if (this.sigintCount >= 2) {
+      // Second Ctrl+C: Exit with stats
+      console.log(chalk.yellow('\n\n👋 Exiting...\n'));
+      this.printSessionSummary();
+      if (this.rl) {
+        this.rl.close();
+      }
     }
   }
 
@@ -815,7 +1421,8 @@ class REPL {
         this.rl!.pause();
         this.isPaused = true;
         await this.configureApprovals(false);
-        this.agent.updateSystemPrompt(this.buildPrompt());
+        const contextManager1 = this.agent.getContextManager();
+        this.agent.updateSystemPrompt(this.buildPrompt(contextManager1));
         this.rl!.resume();
         this.isPaused = false;
         return false;
@@ -824,7 +1431,8 @@ class REPL {
         this.rl!.pause();
         this.isPaused = true;
         await this.configureReasoning();
-        this.agent.updateSystemPrompt(this.buildPrompt());
+        const contextManager2 = this.agent.getContextManager();
+        this.agent.updateSystemPrompt(this.buildPrompt(contextManager2));
         this.rl!.resume();
         this.isPaused = false;
         return false;
@@ -833,7 +1441,8 @@ class REPL {
         this.rl!.pause();
         this.isPaused = true;
         await this.switchModel();
-        this.agent.updateSystemPrompt(this.buildPrompt());
+        const contextManager3 = this.agent.getContextManager();
+        this.agent.updateSystemPrompt(this.buildPrompt(contextManager3));
         this.rl!.resume();
         this.isPaused = false;
         return false;
@@ -846,7 +1455,8 @@ class REPL {
         } catch (error) {
           spinner.fail(`Failed to update mentions: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
-        this.agent.updateSystemPrompt(this.buildPrompt());
+        const contextManager4 = this.agent.getContextManager();
+        this.agent.updateSystemPrompt(this.buildPrompt(contextManager4));
         return false;
       }
       case 'compact': {
@@ -1109,33 +1719,16 @@ class REPL {
     return input.length >= LARGE_PASTE_THRESHOLD;
   }
 
-  private async previewAndConfirmPaste(input: string): Promise<boolean> {
+  private displayPasteSummary(input: string): void {
     const charCount = input.length;
     const lineCount = input.split('\n').length;
-    const previewLines = input.split('\n').slice(0, 5);
-    const preview = previewLines.map((line) => `  ${line}`).join('\n');
-    const hasMore = lineCount > 5;
-
-    console.log(chalk.gray(`\n[Pasted Content ${charCount} chars, ${lineCount} lines]`));
-    if (lineCount > 1) {
-      console.log(chalk.gray('Preview:'));
-      console.log(chalk.gray(preview));
-      if (hasMore) {
-        console.log(chalk.gray(`  ... (${lineCount - 5} more lines)`));
-      }
-    }
-    console.log('');
-
-    const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-      {
-        type: 'confirm',
-        name: 'confirm',
-        message: 'Process this pasted content?',
-        default: true,
-      },
-    ]);
-
-    return confirm;
+    
+    // Display simple summary like "[Pasted 1000 characters]"
+    const summary = lineCount > 1
+      ? `[Pasted ${charCount.toLocaleString()} characters, ${lineCount.toLocaleString()} lines]`
+      : `[Pasted ${charCount.toLocaleString()} characters]`;
+    
+    console.log(chalk.gray(`\n${summary}\n`));
   }
 
   private showCommandPreview(): void {
@@ -1223,9 +1816,30 @@ async function main(): Promise<void> {
       return;
     }
 
-    const selectedModel = options.model || process.env.CEREBRAS_MODEL || process.env.OPENAI_MODEL || 'qwen-3-235b-a22b-instruct-2507';
-    const provider = isValidModel(selectedModel) ? getModelProvider(selectedModel) : 
-                     (process.env.OPENAI_API_KEY ? 'openai' : 'cerebras');
+    const selectedModel = options.model || process.env.CEREBRAS_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
+    
+    // Determine provider based on model name
+    let provider: 'openai' | 'cerebras';
+    if (isValidModel(selectedModel)) {
+      provider = getModelProvider(selectedModel);
+    } else {
+      // Fallback: check which API key is available
+      provider = process.env.OPENAI_API_KEY ? 'openai' : 'cerebras';
+    }
+    
+    // Validate API key is present for the selected provider
+    if (provider === 'openai' && !process.env.OPENAI_API_KEY) {
+      throw new Error(
+        'OPENAI_API_KEY not found. Set OPENAI_API_KEY to use OpenAI models. ' +
+        `Selected model: ${selectedModel}`
+      );
+    }
+    if (provider === 'cerebras' && !process.env.CEREBRAS_API_KEY) {
+      throw new Error(
+        'CEREBRAS_API_KEY not found. Set CEREBRAS_API_KEY to use Cerebras models. ' +
+        `Selected model: ${selectedModel}`
+      );
+    }
     
     const projectConfig = await loadProjectConfig();
     const modelConfig = getModelConfigFromConfig(selectedModel);
@@ -1245,10 +1859,12 @@ async function main(): Promise<void> {
     
     let client: LLMProvider;
     if (provider === 'openai') {
-      const openaiConfig = getOpenAIConfig(options.model);
+      // Use selectedModel to ensure we use the correct model (not options.model which might be undefined)
+      const openaiConfig = getOpenAIConfig(selectedModel);
       client = new OpenAIProvider(openaiConfig);
     } else {
-      const cerebrasConfig = getCerebrasConfig(options.model);
+      // Use selectedModel to ensure we use the correct model
+      const cerebrasConfig = getCerebrasConfig(selectedModel);
       client = new CerebrasClient(cerebrasConfig, tracker, quotaTracker);
     }
     
@@ -1274,8 +1890,11 @@ async function main(): Promise<void> {
       },
     );
 
-    const systemPromptBuilder = () => buildSystemPrompt(toolRegistry, projectConfig, sessionState);
-    const agent = new AgenticLoop(client, toolRegistry, systemPromptBuilder());
+    const systemPromptBuilder = (contextManager?: ContextManager) => 
+      buildSystemPrompt(toolRegistry, projectConfig, sessionState, contextManager);
+    // Use model's max context length for ContextManager, default to 4096
+    const maxContextLength = modelConfig?.maxContextLength || 4096;
+    const agent = new AgenticLoop(client, toolRegistry, systemPromptBuilder(), maxContextLength);
 
     if (options.listFiles) {
       const pattern =
@@ -1337,10 +1956,14 @@ const keepAliveInterval = setInterval(() => {
   // Keep event loop alive
 }, 1000);
 
+// SIGINT is handled by REPL for graceful shutdown
+// Only handle it here if REPL is not active (non-interactive mode)
 process.on('SIGINT', () => {
-  debugLog('SIGINT received, clearing keepAliveInterval');
+  debugLog('SIGINT received at process level');
   clearInterval(keepAliveInterval);
-  process.exit(0);
+  // Let REPL handle graceful shutdown if it exists
+  // Otherwise exit immediately
+  setTimeout(() => process.exit(0), 100);
 });
 
 process.on('exit', (code) => {
