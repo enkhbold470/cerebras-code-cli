@@ -157,7 +157,7 @@ describe('REPL', () => {
       repl['showCommandPreview']();
 
       expect(consoleSpy).toHaveBeenCalledWith('\nAvailable Slash Commands:');
-      expect(consoleSpy).toHaveBeenCalledWith('Available Text Commands:');
+      expect(consoleSpy).toHaveBeenCalledWith('\nAvailable Text Commands:');
 
       // Check that specific commands are shown
       expect(consoleSpy).toHaveBeenCalledWith(

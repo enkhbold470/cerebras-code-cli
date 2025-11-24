@@ -5,7 +5,16 @@ import { AVAILABLE_MODELS } from '../src/models.js';
 import type { CerebrasConfig } from '../src/types.js';
 
 // Mock fetch globally
-global.fetch = vi.fn();
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
+// Set up default mock response
+mockFetch.mockResolvedValue({
+  ok: true,
+  json: vi.fn().mockResolvedValue({
+    choices: [{ message: { content: 'Mock response' } }]
+  })
+});
 
 describe('CerebrasClient', () => {
   let mockConfig: CerebrasConfig;
@@ -15,6 +24,7 @@ describe('CerebrasClient', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockReset();
     // Reset fetch mock
     vi.clearAllMocks();
 
@@ -61,18 +71,24 @@ describe('CerebrasClient', () => {
   });
 
   describe('quota validation', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
     it('should reject requests exceeding context length', async () => {
-      // Create a message that exceeds the model's context length
-      const longMessage = 'x'.repeat(70000); // Much longer than 65536 limit
+      // Create a message that definitely exceeds the model's context length
+      // qwen-3-235b-a22b-instruct-2507 has 65536 token limit
+      // Using a much longer message to ensure it exceeds the limit
+      const longMessage = 'This is a very long message that should exceed the token limit. '.repeat(5000);
       const messages = [{ role: 'user', content: longMessage }];
 
       await expect(client.chat(messages)).rejects.toThrow('Quota limit exceeded');
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should allow requests within quota limits', async () => {
       // Mock successful API response
-      (global.fetch as Mock).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
           choices: [{ message: { content: 'Test response' } }]
@@ -95,7 +111,7 @@ describe('CerebrasClient', () => {
       const messages = [{ role: 'user', content: 'Hello' }];
 
       await expect(client.chat(messages)).rejects.toThrow('Request quota exceeded');
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should reject requests when token quota exceeded', async () => {
@@ -105,13 +121,13 @@ describe('CerebrasClient', () => {
       const messages = [{ role: 'user', content: 'x'.repeat(1000) }]; // ~250 tokens
 
       await expect(client.chat(messages)).rejects.toThrow('Token quota exceeded');
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('should record token usage after successful requests', async () => {
       const messages = [{ role: 'user', content: 'Hello world' }];
 
-      (global.fetch as Mock).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
           choices: [{ message: { content: 'Response with more text' } }]
@@ -132,7 +148,7 @@ describe('CerebrasClient', () => {
       const messages = [{ role: 'user', content: 'Hello' }];
 
       // Mock streaming response
-      (global.fetch as Mock).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
           choices: [{ message: { content: 'Stream response' } }]
@@ -153,13 +169,13 @@ describe('CerebrasClient', () => {
       const messages = [{ role: 'user', content: 'Hello' }];
 
       await expect(client.chat(messages, true)).rejects.toThrow('Request quota exceeded');
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
   describe('API error handling', () => {
     it('should handle API errors gracefully', async () => {
-      (global.fetch as Mock).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: false,
         text: vi.fn().mockResolvedValue('API Error: Invalid key')
       });
@@ -170,7 +186,7 @@ describe('CerebrasClient', () => {
     });
 
     it('should handle network errors', async () => {
-      (global.fetch as Mock).mockRejectedValue(new Error('Network error'));
+      mockFetch.mockRejectedValue(new Error('Network error'));
 
       const messages = [{ role: 'user', content: 'Hello' }];
 
@@ -181,7 +197,7 @@ describe('CerebrasClient', () => {
   describe('request formatting', () => {
     beforeEach(() => {
       vi.clearAllMocks();
-      (global.fetch as Mock).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
           choices: [{ message: { content: 'Test response' } }]
@@ -231,7 +247,7 @@ describe('CerebrasClient', () => {
   describe('integration with different models', () => {
     beforeEach(() => {
       vi.clearAllMocks();
-      (global.fetch as Mock).mockResolvedValue({
+      mockFetch.mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
           choices: [{ message: { content: 'Test response' } }]
@@ -257,17 +273,21 @@ describe('CerebrasClient', () => {
     });
 
   describe('model-specific limits', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
     it('should enforce model-specific context limits', async () => {
       const llama8bConfig = { ...mockConfig, model: 'llama3.1-8b' };
       const llama8bQuota = new QuotaTracker(AVAILABLE_MODELS['llama3.1-8b']);
       const llama8bClient = new CerebrasClient(llama8bConfig, mockTracker, llama8bQuota);
 
       // Try to send a message that exceeds llama3.1-8b's 8192 limit
-      const longMessage = 'x'.repeat(9000); // ~2250 tokens, exceeds 8192
+      const longMessage = 'This is a very long message that should exceed the llama 8b token limit. '.repeat(1000);
       const messages = [{ role: 'user', content: longMessage }];
 
       await expect(llama8bClient.chat(messages)).rejects.toThrow('exceeds model max context length');
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
   });
