@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Three.js Simple Cube Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; background: #141c22; }
+    #info { position: absolute; top: 14px; left: 18px; color: #fff; font-family: JetBrains Mono, monospace; z-index: 2; }
+  </style>
+</head>
+<body>
+  <div id="info">Three.js Cube – Drag to rotate</div>
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
+  <script>
+    // Scene setup
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#141c22");
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100);
+    camera.position.set(2,2,3);
+
+    const renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(2,4,6);
+    scene.add(light);
+
+    // Cube
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshStandardMaterial({ color: 0x00cfff, metalness: 0.2, roughness: 0.5 });
+    const cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    // Controls
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+    // Animate
+    function animate() {
+      cube.rotation.x += 0.01;
+      cube.rotation.y += 0.012;
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    window.addEventListener('resize', ()=>{
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

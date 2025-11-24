@@ -25,9 +25,6 @@ export interface CcodeToolCall {
   };
 }
 
-// Note: Cerebras API doesn't support search_parameters (this was Grok/X.AI specific)
-// Removed SearchParameters and SearchOptions interfaces
-
 export interface CcodeResponse {
   choices: Array<{
     message: {
@@ -116,7 +113,9 @@ export class CcodeClient {
       // Only add tools and tool_choice if tools are provided
       if (tools && tools.length > 0) {
         requestPayload.tools = tools;
-        requestPayload.tool_choice = "auto";
+        // Cerebras API supports: "function", "allowed_tools", "custom", or omit for auto behavior
+        // Using undefined/null to let API use default behavior instead of "auto"
+        // requestPayload.tool_choice = "auto"; // Commented out - Cerebras may not support "auto"
       }
 
       const response =
@@ -206,7 +205,9 @@ export class CcodeClient {
       // Only add tools and tool_choice if tools are provided
       if (tools && tools.length > 0) {
         requestPayload.tools = tools;
-        requestPayload.tool_choice = "auto";
+        // Cerebras API supports: "function", "allowed_tools", "custom", or omit for auto behavior
+        // Using undefined/null to let API use default behavior instead of "auto"
+        // requestPayload.tool_choice = "auto"; // Commented out - Cerebras may not support "auto"
       }
 
       const stream = (await this.client.chat.completions.create(

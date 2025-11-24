@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chess Game (Canvas)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #20232a;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    #game {
+      background: #23272f;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 32px 40px 24px 40px;
+      text-align: center;
+    }
+    canvas {
+      background: #10141e;
+      border-radius: 8px;
+      box-shadow: 0 0 8px #96e6ff44;
+      margin-bottom: 16px;
+    }
+    .info {
+      margin-bottom: 10px;
+      font-size: 1.08em;
+      color: #b3e6ff;
+    }
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #96e6ff;
+      color: #20232a;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #3cc3fc; }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div class="info" id="info">Chess: Click to select and move pieces (no AI)</div>
+    <canvas id="chessboard" width="480" height="480"></canvas>
+    <div>
+      <button id="reset">Restart</button>
+    </div>
+  </div>
+  <script>
+    // Chess symbols (unicode)
+    const pieces = {
+      wK: '\u2654', wQ: '\u2655', wR: '\u2656', wB: '\u2657', wN: '\u2658', wP: '\u2659',
+      bK: '\u265A', bQ: '\u265B', bR: '\u265C', bB: '\u265D', bN: '\u265E', bP: '\u265F'
+    };
+    const initial = [
+      ['bR','bN','bB','bQ','bK','bB','bN','bR'],
+      ['bP','bP','bP','bP','bP','bP','bP','bP'],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['','','','','','','',''],
+      ['wP','wP','wP','wP','wP','wP','wP','wP'],
+      ['wR','wN','wB','wQ','wK','wB','wN','wR']
+    ];
+    let board = JSON.parse(JSON.stringify(initial));
+    let selected = null;
+    let turn = 'w';
+    let info = document.getElementById('info');
+    const canvas = document.getElementById('chessboard');
+    const ctx = canvas.getContext('2d');
+    const size = 60;
+
+    function drawBoard() {
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          ctx.fillStyle = (x + y) % 2 === 0 ? '#d1e6fa' : '#2b2d3a';
+          ctx.fillRect(x*size, y*size, size, size);
+          if (selected && selected[0] === x && selected[1] === y) {
+            ctx.strokeStyle = '#3cc3fc';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(x*size+2, y*size+2, size-4, size-4);
+          }
+          // Draw piece
+          const p = board[y][x];
+          if (p) {
+            ctx.font = '44px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = p[0] === 'w' ? '#fff' : '#111';
+            ctx.fillText(eval('"'+pieces[p]+'"'), x*size+size/2, y*size+size/2+2);
+          }
+        }
+      }
+    }
+    function validMove(from, to) {
+      // Only basic turn and not-capture-own-piece logic
+      const [fx, fy] = from, [tx, ty] = to;
+      const piece = board[fy][fx];
+      if (!piece || piece[0] !== turn) return false;
+      const dest = board[ty][tx];
+      if (dest && dest[0] === turn) return false;
+      if (fx === tx && fy === ty) return false;
+      // Basic moves only (no check, castle, promotion, en passant)
+      // Pawns
+      if (piece[1] === 'P') {
+        let dir = piece[0] === 'w' ? -1 : 1;
+        if (fx === tx && !dest && ty-fy === dir) return true;
+        if (fx === tx && !dest && ((piece[0] === 'w' && fy === 6 && ty === 4) || (piece[0] === 'b' && fy === 1 && ty === 3))) return true;
+        if (Math.abs(tx-fx) === 1 && ty-fy === dir && dest && dest[0] !== turn) return true;
+        return false;
+      }
+      // Knights
+      if (piece[1] === 'N') {
+        return (Math.abs(fx-tx) === 2 && Math.abs(fy-ty) === 1) || (Math.abs(fx-tx) === 1 && Math.abs(fy-ty) === 2);
+      }
+      // Bishops
+      if (piece[1] === 'B') {
+        if (Math.abs(fx-tx) !== Math.abs(fy-ty)) return false;
+        let dx = tx>fx?1:-1, dy = ty>fy?1:-1;
+        for (let i=1; i<Math.abs(fx-tx); ++i) if (board[fy+i*dy][fx+i*dx]) return false;
+        return true;
+      }
+      // Rooks
+      if (piece[1] === 'R') {
+        if (fx !== tx && fy !== ty) return false;
+        if (fx === tx) for (let i=Math.min(fy,ty)+1; i<Math.max(fy,ty); ++i) if (board[i][fx]) return false;
+        if (fy === ty) for (let i=Math.min(fx,tx)+1; i<Math.max(fx,tx); ++i) if (board[fy][i]) return false;
+        return true;
+      }
+      // Queen
+      if (piece[1] === 'Q') {
+        if (fx === tx || fy === ty) return validMove(from, to, 'R');
+        if (Math.abs(fx-tx) === Math.abs(fy-ty)) return validMove(from, to, 'B');
+        return false;
+      }
+      // King
+      if (piece[1] === 'K') {
+        return Math.abs(fx-tx) <= 1 && Math.abs(fy-ty) <= 1;
+      }
+      return false;
+    }
+    function handleClick(e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor((e.clientX - rect.left) / size);
+      const y = Math.floor((e.clientY - rect.top) / size);
+      if (selected) {
+        if (validMove(selected, [x, y])) {
+          board[y][x] = board[selected[1]][selected[0]];
+          board[selected[1]][selected[0]] = '';
+          turn = turn === 'w' ? 'b' : 'w';
+          info.textContent = `Chess: ${turn === 'w' ? 'White' : 'Black'} to move`;
+        }
+        selected = null;
+      } else if (board[y][x] && board[y][x][0] === turn) {
+        selected = [x, y];
+      }
+      drawBoard();
+    }
+    function resetGame() {
+      board = JSON.parse(JSON.stringify(initial));
+      selected = null;
+      turn = 'w';
+      info.textContent = 'Chess: Click to select and move pieces (no AI)';
+      drawBoard();
+    }
+    canvas.addEventListener('click', handleClick);
+    document.getElementById('reset').onclick = resetGame;
+    drawBoard();
+  </script>
+</body>
+</html>

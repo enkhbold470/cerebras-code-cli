@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Memory Game (Canvas)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #181f2a;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    #game {
+      background: #23272f;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 32px 40px 24px 40px;
+      text-align: center;
+    }
+    canvas {
+      background: #101624;
+      border-radius: 8px;
+      box-shadow: 0 0 8px #00ff9f44;
+      margin-bottom: 16px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .info {
+      margin-bottom: 10px;
+      font-size: 1.08em;
+      color: #b3e6ff;
+    }
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #00ff9f;
+      color: #222;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #00b36b;
+    }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div class="info" id="info">Memory Game – Find all pairs!</div>
+    <canvas id="memory" width="344" height="344"></canvas>
+    <div>
+      <button id="reset">Restart</button>
+    </div>
+  </div>
+  <script>
+    // Config
+    const SIZE = 4, CELL = 80, PAD = 12;
+    let cards = [], revealed = [], matched = [], first = null, second = null, busy = false, moves = 0;
+    function reset() {
+      let vals = [];
+      for(let i=0;i<SIZE*SIZE/2;i++) vals.push(i,i);
+      for(let i=vals.length-1;i>0;--i) { let j=Math.floor(Math.random()*(i+1)); [vals[i],vals[j]]=[vals[j],vals[i]]; }
+      cards = Array.from({length:SIZE},(_,y)=>Array.from({length:SIZE},(_,x)=>vals[y*SIZE+x]));
+      revealed = Array.from({length:SIZE},()=>Array(SIZE).fill(false));
+      matched = Array.from({length:SIZE},()=>Array(SIZE).fill(false));
+      first = null; second = null; moves = 0; busy = false;
+      document.getElementById('info').textContent = 'Memory Game – Find all pairs!';
+      render();
+    }
+    const COLORS = ["#e57373", "#64b5f6", "#aed581", "#ffd54f", "#ba68c8", "#4dd0e1", "#ff8a65", "#f06292"];
+    const canvas = document.getElementById('memory');
+    const ctx = canvas.getContext('2d');
+    function render() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++) {
+        let px = PAD + x*CELL, py = PAD + y*CELL;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(px, py, CELL-16, CELL-16, 10);
+        if(revealed[y][x]||matched[y][x]) ctx.fillStyle=COLORS[cards[y][x]%COLORS.length];
+        else ctx.fillStyle="#333";
+        ctx.fill();
+        ctx.strokeStyle="#222"; ctx.stroke();
+        if(revealed[y][x]||matched[y][x]) {
+          ctx.font='32px JetBrains Mono'; ctx.fillStyle='#fff';
+          ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(cards[y][x]+1, px+CELL/2-8, py+CELL/2-8);
+        }
+        ctx.restore();
+      }
+    }
+    canvas.addEventListener('mousedown', e=>{
+      if(busy) return;
+      let rect = canvas.getBoundingClientRect();
+      let mx = e.clientX-rect.left, my = e.clientY-rect.top;
+      let x = Math.floor((mx-PAD)/CELL), y = Math.floor((my-PAD)/CELL);
+      if(x<0||x>=SIZE||y<0||y>=SIZE) return;
+      if(revealed[y][x]||matched[y][x]) return;
+      if(!first) {
+        revealed[y][x]=true; first={x,y};
+      } else if(!second && (first.x!==x||first.y!==y)) {
+        revealed[y][x]=true; second={x,y}; busy=true; moves++;
+        setTimeout(()=>{
+          if(cards[first.y][first.x]===cards[second.y][second.x]) {
+            matched[first.y][first.x]=matched[second.y][second.x]=true;
+            // Check win
+            if(matched.flat().every(Boolean)) document.getElementById('info').textContent = `🎉 You Win! Moves: ${moves}`;
+          } else {
+            revealed[first.y][first.x]=revealed[second.y][second.x]=false;
+          }
+          first=second=null; busy=false; render();
+        }, 800);
+      }
+      render();
+    });
+    document.getElementById('reset').onclick=reset;
+    reset();
+  </script>
+</body>
+</html>

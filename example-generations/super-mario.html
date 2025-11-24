@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Super Mario Mini (Canvas)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #72c6ff;
+      color: #222;
+      font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    #game {
+      background: #cce6ff;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 28px 30px 16px 30px;
+      text-align: center;
+    }
+    canvas {
+      background: #6ad0f7;
+      border-radius: 8px;
+      box-shadow: 0 0 8px #1114;
+      margin-bottom: 12px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .info {
+      margin-bottom: 10px;
+      font-size: 1.08em;
+      color: #1e67ae;
+    }
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #ffda00;
+      color: #222;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #ffe658; }
+    .score { color: #ffda00; font-weight: bold; font-size: 1.15em; }
+  </style>
+</head>
+<body>
+<div id="game">
+  <div class="info" id="info">Super Mario – Arrows/A/D to move, Space/Up to jump</div>
+  <canvas id="mario" width="560" height="320"></canvas>
+  <div class="score" id="score">COINS: 0</div>
+  <button id="reset">Restart</button>
+</div>
+<script>
+const W=560,H=320,GRAV=0.88,FRIC=0.82,PLAT=32;
+// Level: 0-empty,1-ground,2-brick,3-coin,4-flag
+const LVL=[
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+ [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+ [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+ [0,0,0,2,0,0,0,0,0,0,3,0,0,0,0,2,0,4],
+ [0,0,0,0,0,0,0,3,0,0,0,0,2,0,0,0,0,0],
+ [0,0,2,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0],
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+let mario, coins, won;
+function reset() {
+  mario={x:PLAT*1.5,y:H-PLAT*2.5,vx:0,vy:0,w:24,h:30,onGround:false};
+  coins=0; won=false;
+  document.getElementById('score').textContent = 'COINS: 0';
+  document.getElementById('info').textContent = 'Super Mario – Arrows/A/D to move, Space/Up to jump';
+}
+document.getElementById('reset').onclick=reset;
+let keys={};
+document.addEventListener('keydown',e=>{keys[e.key]=1;});
+document.addEventListener('keyup',e=>{keys[e.key]=0;});
+const canvas=document.getElementById('mario');
+const ctx=canvas.getContext('2d');
+function logic() {
+  if(won) return;
+  // Control
+  let left=keys['ArrowLeft']||keys['a'], right=keys['ArrowRight']||keys['d'], up=keys['ArrowUp']||keys[' ']>0||keys[' ']>0||keys['w']||keys['W']||keys['Space']||keys[' '];
+  if(left) mario.vx-=0.7;
+  if(right) mario.vx+=0.7;
+  mario.vx*=FRIC;
+  mario.x+=mario.vx;
+  // Gravity
+  mario.vy+=GRAV;
+  mario.y+=mario.vy;
+  if(mario.y>H-mario.h) { mario.y=H-mario.h; mario.vy=0; mario.onGround=true; }
+  // Collision/Platforms
+  mario.onGround=false;
+  let cx=Math.floor((mario.x+12)/PLAT), cy=Math.floor((mario.y+mario.h)/PLAT);
+  for(let y=0;y<LVL.length;y++) for(let x=0;x<LVL[0].length;x++){
+    if(LVL[y][x]===1||LVL[y][x]===2){
+      let bx=x*PLAT,by=y*PLAT,bw=PLAT,bh=PLAT;
+      if(mario.x+24>bx&&mario.x<bx+bw&&mario.y+mario.h>by&&mario.y<by+bh){
+        // Simple from above
+        if(mario.vy>0&&mario.y+0.6*mario.h<by+8){
+          mario.y=by-mario.h; mario.vy=0; mario.onGround=true;
+        } else if(mario.vy<0 && mario.y>by+bh-14) {
+          mario.y=by+bh; mario.vy=0;
+          if(LVL[y][x]===2) LVL[y][x]=0; // break brick
+        } else {
+          if(mario.x+12<bx+10) mario.x=bx-24;
+          else mario.x=bx+bw-12;
+          mario.vx=0;
+        }
+      }
+    }
+  }
+  // Coin collect
+  for(let y=0;y<LVL.length;y++)for(let x=0;x<LVL[0].length;x++){
+    if(LVL[y][x]===3){
+      let bx=x*PLAT,by=y*PLAT;
+      if(mario.x+18>bx&&mario.x<bx+PLAT-10&&mario.y+mario.h>by+8&&mario.y<by+PLAT-8){
+        LVL[y][x]=0; coins++;
+        document.getElementById('score').textContent = 'COINS: '+coins;
+      }
+    }
+  }
+  // Flag
+  if(LVL[3][17]===4 && mario.x+18>17*PLAT && mario.y>PLAT) {
+    won=true;
+    document.getElementById('info').textContent = `🎉 You Win! Coins: ${coins}`;
+  }
+  // Jump
+  if(up && mario.onGround) { mario.vy=-11; mario.onGround=false; }
+}
+function render() {
+  ctx.clearRect(0,0,W,H);
+  // Draw level
+  for(let y=0;y<LVL.length;y++)for(let x=0;x<LVL[0].length;x++){
+    let bx=x*PLAT, by=y*PLAT;
+    if(LVL[y][x]===1){ ctx.fillStyle="#a75d1c"; ctx.fillRect(bx,by,PLAT,PLAT); ctx.fillStyle="#fff3"; ctx.fillRect(bx,by,PLAT,8); }
+    if(LVL[y][x]===2){ ctx.fillStyle="#d5b084"; ctx.fillRect(bx,by,PLAT,PLAT-6); ctx.strokeStyle="#a75d1c"; ctx.strokeRect(bx+4,by+4,PLAT-8,PLAT-12); }
+    if(LVL[y][x]===3){ ctx.beginPath(); ctx.arc(bx+PLAT/2,by+PLAT/2,11,0,2*Math.PI); ctx.fillStyle="#ffda00"; ctx.fill(); ctx.strokeStyle="#fff"; ctx.stroke(); }
+    if(LVL[y][x]===4){ ctx.fillStyle="#fff"; ctx.fillRect(bx+PLAT-7,by,7,PLAT-6); ctx.fillStyle="#ff4040"; ctx.beginPath(); ctx.moveTo(bx+PLAT-7,by+3); ctx.lineTo(bx+PLAT-7-20,by+13); ctx.lineTo(bx+PLAT-7,by+23); ctx.closePath(); ctx.fill(); }
+  }
+  // Mario
+  ctx.save();
+  ctx.translate(mario.x,mario.y);
+  ctx.fillStyle="#ff5533"; ctx.fillRect(0,0,24,30);
+  ctx.fillStyle="#fff"; ctx.fillRect(3,8,18,8);
+  ctx.fillStyle="#ffda00"; ctx.fillRect(7,22,10,7);
+  ctx.restore();
+}
+function loop(){logic();render();requestAnimationFrame(loop);}
+reset();
+loop();
+</script>
+</body>
+</html>

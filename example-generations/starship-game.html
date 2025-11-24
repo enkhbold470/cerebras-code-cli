@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Starship Game (Canvas)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { 
+      background: #0a1020; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+      height: 100vh; 
+      margin: 0;
+    }
+    #game {
+      background: #141c2c;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 32px 40px 24px 40px;
+      text-align: center;
+    }
+    canvas {
+      background: #05081a;
+      display: block;
+      margin: 0 auto 16px auto;
+      border-radius: 8px;
+      box-shadow: 0 0 8px #00cfff44;
+    }
+    .info {
+      margin-bottom: 10px;
+      font-size: 1.08em;
+      color: #b3e6ff;
+    }
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #00cfff;
+      color: #122;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #0084b3; }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div class="info" id="info">Use ← → keys to move. Space to shoot.</div>
+    <canvas id="starship" width="400" height="540"></canvas>
+    <div>
+      <button id="restart">Restart</button>
+    </div>
+  </div>
+  <script>
+    const canvas = document.getElementById('starship');
+    const ctx = canvas.getContext('2d');
+    const ship = { x: 200, y: 480, w: 36, h: 20, speed: 7 };
+    let left = false, right = false, space = false, alive = true;
+    let bullets = [];
+    let enemies = [];
+    let frames = 0;
+    let score = 0;
+
+    function drawShip() {
+      ctx.save();
+      ctx.translate(ship.x, ship.y);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-ship.w/2, ship.h);
+      ctx.lineTo(ship.w/2, ship.h);
+      ctx.closePath();
+      ctx.fillStyle = alive ? '#00cfff' : '#888';
+      ctx.shadowColor = '#00cfff';
+      ctx.shadowBlur = 16;
+      ctx.fill();
+      ctx.restore();
+    }
+    function drawBullet(b) {
+      ctx.save();
+      ctx.fillStyle = '#fffb00';
+      ctx.shadowColor = '#fff';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(b.x-2, b.y-12, 4, 12);
+      ctx.restore();
+    }
+    function drawEnemy(e) {
+      ctx.save();
+      ctx.fillStyle = '#ff3570';
+      ctx.shadowColor = '#ff3570';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, 16, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.restore();
+    }
+    function resetGame() {
+      ship.x = 200; ship.y = 480; alive = true;
+      bullets = [];
+      enemies = [];
+      frames = 0;
+      score = 0;
+      document.getElementById('info').textContent = 'Use ← → keys to move. Space to shoot.';
+    }
+    document.getElementById('restart').onclick = resetGame;
+    document.addEventListener('keydown', e => {
+      if (e.code === 'ArrowLeft') left = true;
+      if (e.code === 'ArrowRight') right = true;
+      if (e.code === 'Space') space = true;
+    });
+    document.addEventListener('keyup', e => {
+      if (e.code === 'ArrowLeft') left = false;
+      if (e.code === 'ArrowRight') right = false;
+      if (e.code === 'Space') space = false;
+    });
+    function update() {
+      if (!alive) return;
+      if (left) ship.x -= ship.speed;
+      if (right) ship.x += ship.speed;
+      ship.x = Math.max(ship.w/2, Math.min(canvas.width-ship.w/2, ship.x));
+      // Firing
+      if (space && frames % 8 === 0) {
+        bullets.push({ x: ship.x, y: ship.y-2 });
+      }
+      // Move bullets
+      bullets.forEach(b => b.y -= 12);
+      bullets = bullets.filter(b => b.y > 0);
+      // Spawn & move enemies
+      if (frames % 40 === 0) {
+        let ex = Math.random() * (canvas.width-40) + 20;
+        enemies.push({ x: ex, y: -18, speed: 2.5 + Math.random() });
+      }
+      enemies.forEach(e => e.y += e.speed);
+      enemies = enemies.filter(e => e.y < canvas.height+32);
+      // Collisions
+      for (let e of enemies) {
+        // Ship hits
+        if (Math.abs(e.x - ship.x) < 28 && Math.abs(e.y - ship.y) < 26) {
+          alive = false;
+          document.getElementById('info').textContent = 'Game Over! Score: ' + score;
+        }
+        // Bullet hits
+        for (let b of bullets) {
+          if (Math.abs(e.x - b.x) < 16 && Math.abs(e.y - b.y) < 18) {
+            e.hit = true; b.hit = true; score++;
+          }
+        }
+      }
+      enemies = enemies.filter(e => !e.hit);
+      bullets = bullets.filter(b => !b.hit);
+    }
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Draw stars
+      for (let i = 0; i < 64; ++i) {
+        ctx.globalAlpha = 0.1 + (i%6)*0.12;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(Math.random()*canvas.width, Math.random()*canvas.height, Math.random()*1.8+0.4, 0, 2*Math.PI);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      drawShip();
+      bullets.forEach(drawBullet);
+      enemies.forEach(drawEnemy);
+      ctx.fillStyle = '#b3e6ff';
+      ctx.font = '18px JetBrains Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('Score: '+score, 10, 26);
+    }
+    function gameLoop() {
+      update();
+      render();
+      frames++;
+      requestAnimationFrame(gameLoop);
+    }
+    resetGame();
+    gameLoop();
+  </script>
+</body>
+</html>

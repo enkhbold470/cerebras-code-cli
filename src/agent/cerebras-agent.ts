@@ -87,7 +87,9 @@ export class CcodeAgent extends EventEmitter {
     // Initialize with system message
     this.messages.push({
       role: "system",
-      content: `You are Cerebras CLI (ccode), an AI assistant that helps with file editing, coding tasks, and system operations.${customInstructionsSection}
+      content: `You are Cerebras CLI (ccode), an AI assistant that helps with file editing, coding tasks, and system operations. 
+
+IMPORTANT: This tool is called "Cerebras CLI" or "ccode". Always refer to this as "Cerebras CLI" or "ccode".${customInstructionsSection}
 
 You have access to these tools:
 - view_file: View file contents or directory listings
@@ -164,7 +166,6 @@ Current working directory: ${process.cwd()}`,
     });
   }
 
-  // Note: Removed search_parameters support - Cerebras API doesn't support this Grok/X.AI feature
 
   async processUserMessage(message: string): Promise<ChatEntry[]> {
     // Add user message to conversation

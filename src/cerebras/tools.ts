@@ -340,7 +340,8 @@ export async function initializeMCPServers(): Promise<void> {
 }
 
 export function convertMCPToolToCcodeTool(mcpTool: MCPTool): CcodeTool {
-  return {
+  // Ensure we create a clean tool object without any existing type field
+  const tool: CcodeTool = {
     type: "function",
     function: {
       name: mcpTool.name,
@@ -352,6 +353,13 @@ export function convertMCPToolToCcodeTool(mcpTool: MCPTool): CcodeTool {
       }
     }
   };
+  
+  // Explicitly ensure type is set correctly (defensive programming)
+  if (tool.type !== "function") {
+    tool.type = "function";
+  }
+  
+  return tool;
 }
 
 export function addMCPToolsToCcodeTools(baseTools: CcodeTool[]): CcodeTool[] {

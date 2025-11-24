@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Quake 3 Mini FPS Demo (Canvas Raycaster)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { background: #14171c; color: #f4f4f4; margin:0; height:100vh; display:flex; justify-content:center; align-items:center; font-family: JetBrains Mono, monospace; }
+    #game {
+      background: #23272f;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 24px 32px 12px 32px;
+      text-align: center;
+    }
+    canvas { background: #12151b; border-radius: 8px; display: block; margin: 0 auto 10px auto; box-shadow: 0 0 6px #00cfff44; }
+    .info { color: #b3e6ff; margin-bottom: 8px; font-size: 1.04em; }
+    button { padding: 8px 18px; border: none; border-radius: 6px; background: #00cfff; color: #122; font-weight: bold; font-size: 1em; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: #0084b3; }
+    .score { color: #fffb00; font-weight: bold; font-size: 1.3em; }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div class="info">WASD/arrows to move. Mouse/Space to shoot. (Demo)</div>
+    <canvas id="fps" width="420" height="280"></canvas>
+    <div class="score" id="score">SCORE: 0</div>
+    <button id="restart">Restart</button>
+  </div>
+  <script>
+    // Simple raycasting constants
+    const MAP = [
+      [1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,1],
+      [1,0,1,0,1,1,1,0,1,0,1],
+      [1,0,1,0,0,0,1,0,1,0,1],
+      [1,0,1,1,1,0,1,1,1,0,1],
+      [1,0,0,0,0,0,0,0,0,2,1],
+      [1,0,1,1,1,1,1,0,1,1,1],
+      [1,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1]
+    ];
+    const W = 420, H = 280, FOV = Math.PI/3, NUM_RAYS = 84, MAX_DIST = 13;
+    let player = {x: 2.5, y: 2.5, a: 0, speed: 0, rot: 0, alive: true};
+    let score = 0;
+    let monster = {x:9.5, y:5.5, alive:true};
+    const canvas = document.getElementById('fps');
+    const ctx = canvas.getContext('2d');
+    function resetGame() {
+      player = {x: 2.5, y: 2.5, a: 0, speed: 0, rot: 0, alive: true};
+      monster = {x:9.5, y:5.5, alive:true};
+      score = 0;
+      document.getElementById('score').textContent = 'SCORE: ' + score;
+    }
+    document.getElementById('restart').onclick = resetGame;
+
+    // Controls
+    let keys = {};
+    document.addEventListener('keydown', e=>{ keys[e.key]=true; });
+    document.addEventListener('keyup', e=>{ keys[e.key]=false; });
+    canvas.addEventListener('mousedown', shoot);
+    document.addEventListener('keydown', e=>{ if(e.code==='Space') shoot(); });
+
+    function shoot() {
+      if (!player.alive || !monster.alive) return;
+      // Raycast in the middle
+      let rayA = player.a;
+      let rayX = player.x, rayY = player.y;
+      for(let d=0; d<MAX_DIST; d+=0.02) {
+        let tx = rayX + Math.cos(rayA)*d, ty = rayY + Math.sin(rayA)*d;
+        if(Math.floor(tx)===Math.floor(monster.x) && Math.floor(ty)===Math.floor(monster.y)) {
+          monster.alive = false; score++;
+          document.getElementById('score').textContent = 'SCORE: ' + score;
+          break;
+        }
+        if(MAP[Math.floor(ty)][Math.floor(tx)] === 1) break;
+      }
+    }
+    function logic() {
+      if (!player.alive) return;
+      // Move
+      if(keys['w']||keys['ArrowUp']) player.speed = 0.11;
+      else if(keys['s']||keys['ArrowDown']) player.speed = -0.09;
+      else player.speed = 0;
+      if(keys['a']||keys['ArrowLeft']) player.rot = -0.08;
+      else if(keys['d']||keys['ArrowRight']) player.rot = 0.08;
+      else player.rot = 0;
+      player.a += player.rot;
+      let nx = player.x + Math.cos(player.a)*player.speed;
+      let ny = player.y + Math.sin(player.a)*player.speed;
+      if(MAP[Math.floor(ny)][Math.floor(nx)] !== 1) {
+        player.x = nx; player.y = ny;
+      }
+      // Simple monster AI (move towards player)
+      if(monster.alive) {
+        let dx = player.x - monster.x, dy = player.y - monster.y;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        if(dist > 0.3) {
+          monster.x += dx/dist*0.025;
+          monster.y += dy/dist*0.025;
+        } else {
+          player.alive = false;
+          document.getElementById('score').textContent = 'GAME OVER! SCORE: ' + score;
+        }
+      }
+    }
+    function render() {
+      ctx.clearRect(0,0,W,H);
+      // Raycasting walls
+      for(let i=0;i<NUM_RAYS;i++){
+        let rayA = player.a - FOV/2 + FOV*i/NUM_RAYS;
+        let d=0, hit=0, wall=0;
+        while(!hit && d<MAX_DIST) {
+          d += 0.03;
+          let tx = player.x + Math.cos(rayA)*d;
+          let ty = player.y + Math.sin(rayA)*d;
+          if(MAP[Math.floor(ty)][Math.floor(tx)] === 1) {hit=1; wall=1; break;}
+          if(monster.alive && Math.floor(tx)===Math.floor(monster.x) && Math.floor(ty)===Math.floor(monster.y)) {hit=1; wall=2; break;}
+        }
+        // Draw wall slice
+        let wallH = (1/(d+0.05))*210;
+        if (wall===1) ctx.fillStyle = `rgb(30,80,160)`;
+        else if (wall===2) ctx.fillStyle = `rgb(210,60,70)`;
+        else ctx.fillStyle = '#222';
+        ctx.fillRect(i*W/NUM_RAYS,(H-wallH)/2,Math.ceil(W/NUM_RAYS),wallH);
+      }
+      // Simple gun sprite
+      ctx.globalAlpha=0.95;
+      ctx.fillStyle="#333";
+      ctx.fillRect(W/2-38,H-38,76,26);
+      ctx.fillStyle="#aaf";
+      ctx.fillRect(W/2-7,H-34,14,14);
+      ctx.globalAlpha=1;
+    }
+    function loop() { logic(); render(); requestAnimationFrame(loop); }
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>

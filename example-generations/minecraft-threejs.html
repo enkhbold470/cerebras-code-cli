@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Minecraft Mini (Three.js)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; background: #222; }
+    #info {
+      position: absolute; top: 16px; left: 16px;
+      color: #c3f7c3; background: rgba(20,32,20,0.87); padding: 8px 18px; border-radius: 8px;
+      font-family: JetBrains Mono, SFMono-Regular, Menlo, monospace; font-size: 1rem; z-index: 2;
+      pointer-events: none;
+    }
+    #reset {
+      position: absolute; top: 16px; right: 16px;
+      padding: 8px 18px; border: none; border-radius: 6px; background: #00ff9f; color: #222;
+      font-weight: bold; font-size: 1em; cursor: pointer; transition: background 0.2s;
+      z-index: 2;
+    }
+    #reset:hover { background: #00b36b; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="info">WASD/mouse: move/look. Left click: add block. Right click: remove block. <br>ESC for pointer lock menu.</div>
+  <button id="reset">Reset</button>
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.152.2/examples/js/controls/PointerLockControls.js"></script>
+  <script>
+    // Scene setup
+    let scene = new THREE.Scene();
+    let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 120);
+    let renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setClearColor('#87ceeb');
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    let ambient = new THREE.AmbientLight(0xffffff, 0.84);
+    scene.add(ambient);
+    let dir = new THREE.DirectionalLight(0xfafafa, 0.55);
+    dir.position.set(8, 22, 12);
+    scene.add(dir);
+
+    // Controls
+    let controls = new THREE.PointerLockControls(camera, document.body);
+    document.body.addEventListener('click', ()=>controls.lock(), false);
+    // Movement
+    let moveF=0, moveB=0, moveL=0, moveR=0, velY=0, canJump=false;
+    let keys={};
+    document.addEventListener('keydown',e=>{keys[e.code]=1;});
+    document.addEventListener('keyup',e=>{keys[e.code]=0;});
+
+    // Block types (colors)
+    const COLORS = [0x7cfc00,0x8b5a2b,0x5d3fd3,0xaaaaaa,0x00bfff];
+    // Simple flat world
+    const WORLD_W=16, WORLD_D=16, WORLD_H=6;
+    let blocks = {};
+    function posKey(x,y,z){return `${x},${y},${z}`;}
+    function addBlock(x,y,z,type){
+      if(blocks[posKey(x,y,z)]) return;
+      let geom = new THREE.BoxGeometry(1,1,1);
+      let mat = new THREE.MeshLambertMaterial({color:COLORS[type%COLORS.length]});
+      let mesh = new THREE.Mesh(geom,mat);
+      mesh.position.set(x+0.5,y+0.5,z+0.5);
+      mesh.castShadow=mesh.receiveShadow=true;
+      scene.add(mesh);
+      blocks[posKey(x,y,z)] = {mesh,type};
+    }
+    function removeBlock(x,y,z){
+      let b=blocks[posKey(x,y,z)];
+      if(b) { scene.remove(b.mesh); delete blocks[posKey(x,y,z)]; }
+    }
+    function resetWorld() {
+      for(let k in blocks) scene.remove(blocks[k].mesh);
+      blocks={};
+      for(let x=0;x<WORLD_W;x++) for(let z=0;z<WORLD_D;z++) for(let y=0;y<2;y++)
+        addBlock(x,y,z,(y===0?1:0)); // dirt/grass
+    }
+    resetWorld();
+    document.getElementById('reset').onclick=()=>{ resetWorld(); camera.position.set(WORLD_W/2,5,WORLD_D/2); };
+
+    // Place player at start
+    camera.position.set(WORLD_W/2, 5, WORLD_D/2);
+
+    // Raycaster for placing/removing blocks
+    let raycaster = new THREE.Raycaster();
+    function intersectBlock(mx,my) {
+      raycaster.setFromCamera(new THREE.Vector2(mx,my), camera);
+      let meshes = Object.values(blocks).map(b=>b.mesh);
+      return raycaster.intersectObjects(meshes)[0];
+    }
+    renderer.domElement.addEventListener('mousedown', e=>{
+      if (!controls.isLocked) return;
+      let mx=0, my=0;
+      // Center of screen (crosshair)
+      let hit = intersectBlock(mx,my);
+      if(!hit) return;
+      let p = hit.object.position, n = hit.face.normal;
+      if(e.button===2) removeBlock(Math.floor(p.x),Math.floor(p.y),Math.floor(p.z));
+      else if(e.button===0) {
+        let x=Math.floor(p.x+n.x),y=Math.floor(p.y+n.y),z=Math.floor(p.z+n.z);
+        if(y>=0 && y<WORLD_H) addBlock(x,y,z,Math.floor(Math.random()*COLORS.length));
+      }
+    });
+    window.addEventListener('contextmenu', e=>e.preventDefault());
+
+    // Main loop
+    function animate() {
+      // Movement
+      moveF = keys['KeyW']||keys['ArrowUp']?1:0;
+      moveB = keys['KeyS']||keys['ArrowDown']?1:0;
+      moveL = keys['KeyA']||keys['ArrowLeft']?1:0;
+      moveR = keys['KeyD']||keys['ArrowRight']?1:0;
+      let vx = moveR-moveL, vz = moveB-moveF;
+      let speed = 0.13;
+      if(controls.isLocked) {
+        controls.moveRight(vx*speed);
+        controls.moveForward(-vz*speed);
+        // Simple jump/fall
+        if(keys['Space']&&canJump) {velY=0.24;canJump=false;}
+        velY-=0.021; // gravity
+        camera.position.y += velY;
+        if(camera.position.y<2.7) {camera.position.y=2.7;velY=0;canJump=true;}
+      }
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+    window.addEventListener('resize',()=>{
+      camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

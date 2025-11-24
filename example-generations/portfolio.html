@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Inky Ganbold | Matrix Terminal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              mono: ['"JetBrains Mono"', 'SFMono-Regular', 'Menlo', 'monospace'],
+            },
+            colors: {
+              matrix: {
+                bg: '#020712',
+                bright: '#00ff9f',
+                dim: '#00b36b',
+              },
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Custom styles -->
+    <style>
+      html,
+      body {
+        background: #020712;
+        color: #e5ffe5;
+        font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+      }
+
+      #matrix-canvas {
+        position: fixed;
+        inset: 0;
+        z-index: -10;
+        background: radial-gradient(circle at top, #04151f 0, #020712 55%, #000 100%);
+      }
+
+      .scanlines::before {
+        content: '';
+        pointer-events: none;
+        position: fixed;
+        inset: 0;
+        background: repeating-linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0.2) 0px,
+          rgba(0, 0, 0, 0.2) 1px,
+          rgba(0, 0, 0, 0) 2px
+        );
+        mix-blend-mode: soft-light;
+        opacity: 0.4;
+        z-index: 20;
+      }
+
+      .terminal-cursor {
+        display: inline-block;
+        width: 0.6em;
+        height: 1.1em;
+        margin-left: 0.1em;
+        background: #00ff9f;
+        box-shadow: 0 0 8px #00ff9f;
+        animation: blink 1s steps(1, start) infinite;
+      }
+
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      .neon-border {
+        border: 1px solid rgba(0, 255, 159, 0.4);
+        box-shadow:
+          0 0 12px rgba(0, 255, 159, 0.25),
+          0 0 40px rgba(0, 179, 107, 0.35);
+      }
+
+      .neon-text {
+        text-shadow:
+          0 0 6px rgba(0, 255, 159, 0.8),
+          0 0 24px rgba(0, 179, 107, 0.6);
+      }
+
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #020712;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #064e3b;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #047857;
+      }
+    </style>
+  </head>
+  <body class="h-full text-sm md:text-base scanlines">
+    <canvas id="matrix-canvas"></canvas>
+
+    <div class="relative min-h-screen flex items-center justify-center py-10 px-4">
+      <div class="neon-border bg-black/60 backdrop-blur rounded-2xl max-w-2xl w-full p-6 md:p-8 space-y-4">
+        <header class="flex items-center justify-between gap-3">
+          <div>
+            <h1 class="text-xl md:text-2xl font-semibold text-matrix-bright neon-text tracking-[0.25em] uppercase">
+              inky@matrix:~/portfolio
+            </h1>
+            <p class="text-emerald-200/80 text-xs md:text-sm mt-1">
+              Static version – no React, just vibes.
+            </p>
+          </div>
+          <span class="inline-flex items-center gap-1 text-[0.65rem] uppercase tracking-[0.18em] text-emerald-300/80">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"></span>
+            live
+          </span>
+        </header>
+
+        <main class="space-y-4 text-sm md:text-base">
+          <section class="space-y-1">
+            <p class="text-emerald-400/80 text-xs md:text-sm">$ whoami</p>
+            <p class="text-emerald-100/90">
+              Inky Ganbold (Enkhbold Ganbold) – full‑stack engineer and hackathon builder based in the SF Bay Area.
+            </p>
+          </section>
+
+          <section class="space-y-1">
+            <p class="text-emerald-400/80 text-xs md:text-sm">$ bio --short</p>
+            <p class="text-emerald-100/90 leading-relaxed">
+              I like building fast, practical tools and prototypes – especially around AI, dev‑tools, and realtime apps.
+              Most of my work comes from hackathons, side projects, and helping teams ship faster.
+            </p>
+          </section>
+
+          <section class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            <div class="space-y-1">
+              <p class="text-emerald-400/80 text-xs md:text-sm">$ focus</p>
+              <ul class="list-none space-y-0.5 text-emerald-100/90 text-sm">
+                <li>▹ AI tooling & dev UX</li>
+                <li>▹ Realtime / collaborative apps</li>
+                <li>▹ Clean, maintainable systems</li>
+              </ul>
+            </div>
+            <div class="space-y-1">
+              <p class="text-emerald-400/80 text-xs md:text-sm">$ stack</p>
+              <ul class="list-none space-y-0.5 text-emerald-100/90 text-sm">
+                <li>▹ TypeScript, React / Next.js</li>
+                <li>▹ Node.js, Postgres, Redis</li>
+                <li>▹ Tailwind, websockets, cloud</li>
+              </ul>
+            </div>
+          </section>
+
+          <section class="pt-2 space-y-2">
+            <p class="text-emerald-400/80 text-xs md:text-sm">$ links</p>
+            <div class="flex flex-wrap gap-2 text-xs md:text-sm">
+              <a
+                href="#"
+                class="px-3 py-1.5 rounded-full border border-emerald-700/70 bg-black/60 text-emerald-100/90 hover:bg-emerald-900/40 transition-colors"
+                >GitHub</a
+              >
+              <a
+                href="#"
+                class="px-3 py-1.5 rounded-full border border-emerald-700/70 bg-black/60 text-emerald-100/90 hover:bg-emerald-900/40 transition-colors"
+                >LinkedIn</a
+              >
+              <a
+                href="mailto:you@example.com"
+                class="px-3 py-1.5 rounded-full border border-emerald-700/70 bg-black/60 text-emerald-100/90 hover:bg-emerald-900/40 transition-colors"
+                >Email</a
+              >
+            </div>
+          </section>
+        </main>
+
+        <footer class="pt-3 flex items-center justify-between text-[0.65rem] text-emerald-300/70">
+          <span>matrix session: static-mode</span>
+          <span>uptime: 0x<span id="uptime-hex">0</span></span>
+        </footer>
+      </div>
+
+      <span class="terminal-cursor"></span>
+    </div>
+
+    <script>
+      // Simple matrix rain background
+      function startMatrixRain() {
+        const canvas = document.getElementById('matrix-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        function resize() {
+          canvas.width = window.innerWidth;
+          canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        const letters = '01INKYGANBOLDMATRIX';
+        const fontSize = 16;
+        let columns = Math.floor(canvas.width / fontSize);
+        let drops = new Array(columns).fill(1);
+
+        function draw() {
+          ctx.fillStyle = 'rgba(2, 7, 18, 0.10)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.fillStyle = '#00ff9f';
+          ctx.font = fontSize + 'px JetBrains Mono, monospace';
+
+          for (let i = 0; i < drops.length; i++) {
+            const text = letters.charAt(Math.floor(Math.random() * letters.length));
+            const x = i * fontSize;
+            const y = drops[i] * fontSize;
+            ctx.fillText(text, x, y);
+
+            if (y > canvas.height && Math.random() > 0.975) {
+              drops[i] = 0;
+            }
+            drops[i]++;
+          }
+
+          requestAnimationFrame(draw);
+        }
+
+        draw();
+      }
+
+      startMatrixRain();
+
+      // Simple uptime hex counter
+      (function () {
+        const el = document.getElementById('uptime-hex');
+        if (!el) return;
+        const start = Date.now();
+        function tick() {
+          const seconds = Math.floor((Date.now() - start) / 1000);
+          el.textContent = seconds.toString(16);
+          requestAnimationFrame(tick);
+        }
+        tick();
+      })();
+    </script>
+  </body>
+</html>

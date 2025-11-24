@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Solitaire Card Game (Canvas)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #113;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    #game {
+      background: #23272f;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 32px 40px 24px 40px;
+      text-align: center;
+      min-width: 820px;
+    }
+    canvas {
+      background: #194;
+      border-radius: 8px;
+      box-shadow: 0 0 8px #cfcfdf44;
+      margin-bottom: 16px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .info {
+      margin-bottom: 10px;
+      font-size: 1.08em;
+      color: #b3e6ff;
+    }
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #b3e6ff;
+      color: #20232a;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #3cc3fc; }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div class="info" id="info">Solitaire (Klondike) - Drag cards with mouse</div>
+    <canvas id="solitaire" width="800" height="500"></canvas>
+    <div>
+      <button id="reset">Restart</button>
+    </div>
+  </div>
+  <script>
+    // Card and deck helpers
+    const SUITS = ['♠','♥','♣','♦'];
+    const COLORS = ['black','red','black','red'];
+    function createDeck() {
+      const deck = [];
+      for (let s = 0; s < 4; ++s)
+        for (let v = 1; v <= 13; ++v)
+          deck.push({s, v, color: COLORS[s]});
+      return deck;
+    }
+    function shuffle(deck) {
+      for (let i = deck.length - 1; i > 0; --i) {
+        let j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+    // Layout vars
+    const COLS = 7, STOCK_X = 16, STOCK_Y = 22, W = 800, H = 500;
+    const CARD_W = 66, CARD_H = 94, CARD_S = 22, CARD_F = 16;
+    // Game state
+    let stock = [], waste = [], table = [], foundations = [[],[],[],[]];
+    function dealGame() {
+      let d = shuffle(createDeck());
+      stock = d.slice(0,24);
+      let i = 24;
+      table = [];
+      for (let c = 0; c < COLS; ++c) {
+        table[c] = [];
+        for (let r = 0; r <= c; ++r) {
+          let card = d[i++];
+          card.face = r === c;
+          table[c].push(card);
+        }
+      }
+      waste = [];
+      foundations = [[],[],[],[]];
+    }
+    // Rendering
+    const canvas = document.getElementById('solitaire');
+    const ctx = canvas.getContext('2d');
+    function drawCard(card, x, y, face=true, shadow=false) {
+      ctx.save();
+      if(shadow) {
+        ctx.globalAlpha=0.22;
+        ctx.fillStyle="#000";
+        ctx.fillRect(x+2,y+2,CARD_W,CARD_H);
+        ctx.globalAlpha=1;
+      }
+      ctx.beginPath();
+      ctx.roundRect(x, y, CARD_W, CARD_H, 9);
+      ctx.fillStyle = face||card.face ? "#fff" : "#114";
+      ctx.fill();
+      ctx.strokeStyle = "#222";
+      ctx.stroke();
+      if(face||card.face) {
+        ctx.fillStyle = (card.color==="red"?"#c33":"#222");
+        ctx.font = "17px JetBrains Mono,monospace";
+        let val = card.v===1?"A":card.v===11?"J":card.v===12?"Q":card.v===13?"K":card.v;
+        ctx.fillText(val+SUITS[card.s], x+9, y+24);
+      } else {
+        ctx.fillStyle = "#338";
+        ctx.fillRect(x+14,y+14,38,66);
+      }
+      ctx.restore();
+    }
+    function render() {
+      ctx.clearRect(0,0,W,H);
+      // Stock
+      if(stock.length) drawCard(stock[stock.length-1], STOCK_X, STOCK_Y, false);
+      else {
+        ctx.save(); ctx.globalAlpha=0.15;
+        ctx.fillStyle="#fff"; ctx.fillRect(STOCK_X, STOCK_Y, CARD_W, CARD_H); ctx.restore();
+      }
+      // Waste
+      if(waste.length) drawCard(waste[waste.length-1], STOCK_X+CARD_W+18, STOCK_Y, true);
+      // Foundations
+      for(let f=0;f<4;f++) {
+        let x=STOCK_X+260+f*(CARD_W+18), y=STOCK_Y;
+        if(foundations[f].length) drawCard(foundations[f][foundations[f].length-1], x, y);
+        else {
+          ctx.save(); ctx.globalAlpha=0.11;
+          ctx.strokeStyle="#fff"; ctx.strokeRect(x, y, CARD_W, CARD_H); ctx.restore();
+        }
+      }
+      // Table columns
+      for(let c=0;c<COLS;c++) {
+        let x=STOCK_X+c*(CARD_W+CARD_S), y=STOCK_Y+CARD_H+CARD_F;
+        for(let r=0;r<table[c].length;r++) {
+          let card=table[c][r];
+          drawCard(card, x, y+r*28, true, drag && drag.from==='table' && drag.col===c && drag.row<=r);
+        }
+      }
+      // Dragged cards
+      if(drag && drag.cards) {
+        for(let i=0;i<drag.cards.length;i++) {
+          drawCard(drag.cards[i], drag.x, drag.y+i*28, true, false);
+        }
+      }
+    }
+    // Mouse interactions
+    let drag=null;
+    function getCardAt(mx,my) {
+      // Table
+      for(let c=0;c<COLS;c++) {
+        let x=STOCK_X+c*(CARD_W+CARD_S), y=STOCK_Y+CARD_H+CARD_F;
+        for(let r=table[c].length-1;r>=0;r--) {
+          let cy = y+r*28;
+          if(mx>=x && mx<=x+CARD_W && my>=cy && my<=cy+28) return {from:'table',col:c,row:r};
+        }
+      }
+      // Waste
+      let wx=STOCK_X+CARD_W+18, wy=STOCK_Y;
+      if(waste.length && mx>=wx && mx<=wx+CARD_W && my>=wy && my<=wy+CARD_H) return {from:'waste'};
+      // Foundations
+      for(let f=0;f<4;f++) {
+        let fx=STOCK_X+260+f*(CARD_W+18), fy=STOCK_Y;
+        if(mx>=fx && mx<=fx+CARD_W && my>=fy && my<=fy+CARD_H) return {from:'foundation',f};
+      }
+      // Stock
+      if(stock.length && mx>=STOCK_X && mx<=STOCK_X+CARD_W && my>=STOCK_Y && my<=STOCK_Y+CARD_H) return {from:'stock'};
+      return null;
+    }
+    canvas.addEventListener('mousedown', e=>{
+      let rect = canvas.getBoundingClientRect();
+      let mx = e.clientX-rect.left, my = e.clientY-rect.top;
+      let pos = getCardAt(mx,my);
+      if(!pos) return;
+      if(pos.from==='stock') {
+        if(stock.length) waste.push(Object.assign(stock.pop(),{face:true}));
+      } else if(pos.from==='waste') {
+        let card = waste[waste.length-1];
+        drag = {from:'waste',cards:[card],x:mx-33,y:my-47};
+      } else if(pos.from==='table') {
+        let cards = table[pos.col].slice(pos.row);
+        if(!cards[0].face) return;
+        drag = {from:'table',col:pos.col,row:pos.row,cards,x:mx-33,y:my-47};
+      } else if(pos.from==='foundation') {
+        let card = foundations[pos.f][foundations[pos.f].length-1];
+        if(card) drag = {from:'foundation',f:pos.f,cards:[card],x:mx-33,y:my-47};
+      }
+      render();
+    });
+    canvas.addEventListener('mousemove', e=>{
+      if(!drag) return;
+      let rect = canvas.getBoundingClientRect();
+      drag.x = e.clientX-rect.left-33;
+      drag.y = e.clientY-rect.top-47;
+      render();
+    });
+    canvas.addEventListener('mouseup', e=>{
+      if(!drag) return drag=null,render();
+      let rect = canvas.getBoundingClientRect();
+      let mx = e.clientX-rect.left, my = e.clientY-rect.top;
+      let pos = getCardAt(mx,my);
+      if(pos) {
+        let top = drag.cards[0];
+        // Table drop
+        if(pos.from==='table') {
+          let col=pos.col, stack=table[col];
+          let dest = stack.length?stack[stack.length-1]:null;
+          if(!dest && top.v===13) {
+            // Only King on empty
+            moveDraggedToTable(col);
+          } else if(dest && dest.face && dest.color!==top.color && dest.v===top.v+1) {
+            moveDraggedToTable(col);
+          }
+        } else if(pos.from==='foundation') {
+          let f=pos.f, stack=foundations[f];
+          if(stack.length===0 && top.v===1) moveDraggedToFoundation(f);
+          else if(stack.length && stack[stack.length-1].s===top.s && stack[stack.length-1].v===top.v-1) moveDraggedToFoundation(f);
+        }
+      }
+      drag=null; render();
+    });
+    function moveDraggedToTable(col) {
+      if(drag.from==='waste') table[col].push(waste.pop());
+      else if(drag.from==='table') {
+        let moved=table[drag.col].splice(drag.row);
+        table[col]=table[col].concat(moved);
+        if(table[drag.col].length && !table[drag.col][table[drag.col].length-1].face) table[drag.col][table[drag.col].length-1].face=true;
+      } else if(drag.from==='foundation') table[col].push(foundations[drag.f].pop());
+    }
+    function moveDraggedToFoundation(f) {
+      if(drag.from==='waste') foundations[f].push(waste.pop());
+      else if(drag.from==='table') {
+        let moved=table[drag.col].splice(drag.row);
+        foundations[f]=foundations[f].concat(moved);
+        if(table[drag.col].length && !table[drag.col][table[drag.col].length-1].face) table[drag.col][table[drag.col].length-1].face=true;
+      }
+    }
+    document.getElementById('reset').onclick=()=>{dealGame();render();};
+    dealGame();
+    render();
+  </script>
+</body>
+</html>
