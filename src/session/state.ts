@@ -17,12 +17,16 @@ export class SessionState {
   private reasoning: ReasoningMode = 'balanced';
   private permissionMode: PermissionMode = 'interactive';
   private mentions = new Set<string>();
-  private readonly modelName: string;
+  private modelName: string;
   readonly customSystemInstruction?: string;
 
   constructor(modelName: string, customSystemInstruction?: string) {
     this.modelName = modelName;
     this.customSystemInstruction = customSystemInstruction;
+  }
+
+  setModelName(modelName: string): void {
+    this.modelName = modelName;
   }
 
   setPermissionMode(mode: PermissionMode): void {

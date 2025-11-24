@@ -10,6 +10,28 @@ import { SessionState, type ApprovalSubject, type ReasoningMode } from './sessio
 import { SessionTracker } from './session/tracker.js';
 import { SlashCommandLoader } from './commands/slash-commands.js';
 import { CommandRegistry } from './commands/registry.js';
+import { CerebrasClient } from './cerebras-client.js';
+import { QuotaTracker } from './quota-tracker.js';
+import { listAvailableModels, getModelConfig, isValidModel } from './models.js';
+import { getCerebrasConfig } from './config.js';
+
+// Command definitions for preview
+const SLASH_COMMANDS = [
+  { name: '/init', desc: 'scaffold AGENTS.md with Codex instructions' },
+  { name: '/status', desc: 'show current model, reasoning mode, approvals, mentions, and tool usage counts' },
+  { name: '/approvals', desc: 'choose which tool categories (write_file, run_bash) are auto-approved' },
+  { name: '/model', desc: 'switch reasoning style (fast, balanced, thorough)' },
+  { name: '/switch-model', desc: 'switch to a different model' },
+  { name: '/mention <path>', desc: 'highlight files/directories the agent must focus on (/mention clear resets)' },
+  { name: '/compact', desc: 'summarize recent turns and trim context to avoid token pressure' },
+  { name: '/quit', desc: 'exit and display the session summary' },
+];
+
+const TEXT_COMMANDS = [
+  { name: 'help', desc: 'show help information and tips' },
+  { name: 'clear', desc: 'clear conversation history and reset system prompt' },
+  { name: 'exit', desc: 'exit the REPL (same as /quit)' },
+];
 
 type PromptBuilder = () => string;
 
@@ -33,6 +55,8 @@ export class REPL {
   private readonly sessionState: SessionState;
   private readonly tracker: SessionTracker;
   private readonly commandRegistry: CommandRegistry;
+  private client: CerebrasClient;
+  private quotaTracker?: QuotaTracker;
   private rl: readline.Interface | null = null;
   private isProcessing = false;
   private pendingCommands: Set<string> = new Set();
@@ -42,12 +66,16 @@ export class REPL {
     buildPrompt: PromptBuilder,
     sessionState: SessionState,
     tracker: SessionTracker,
+    client: CerebrasClient,
+    quotaTracker?: QuotaTracker,
     commandRegistry?: CommandRegistry,
   ) {
     this.agent = agent;
     this.buildPrompt = buildPrompt;
     this.sessionState = sessionState;
     this.tracker = tracker;
+    this.client = client;
+    this.quotaTracker = quotaTracker;
     this.commandRegistry = commandRegistry || new CommandRegistry(new SlashCommandLoader());
   }
 
@@ -58,8 +86,7 @@ export class REPL {
 ██║     █████╗  ██████╔╝█████╗  ██████╔╝██████╔╝███████║███████╗
 ██║     ██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗██╔══██║╚════██║
 ╚██████╗███████╗██║  ██║███████╗██████╔╝██║  ██║██║  ██║███████║
- ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
-                                                                             
+ ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝                                                                           
 `;
     console.log(chalk.cyan(asciiArt));
     console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode\n'));
@@ -67,55 +94,15 @@ export class REPL {
     // Load slash commands
     await this.commandRegistry.load();
     const customCommands = this.commandRegistry.list();
-    
-    // Display available commands
-    console.log(chalk.yellow.bold('Available Commands:\n'));
-    
-    // Slash commands with descriptions
-    console.log(chalk.cyan('  Slash Commands:'));
-    const slashCommands = [
-      { name: '/init', desc: 'scaffold AGENTS.md with Codex instructions' },
-      { name: '/status', desc: 'show current model, reasoning mode, approvals, mentions, and tool usage counts' },
-      { name: '/approvals', desc: 'choose which tool categories (write_file, run_bash) are auto-approved' },
-      { name: '/model', desc: 'switch reasoning style (fast, balanced, thorough)' },
-      { name: '/mention <path>', desc: 'highlight files/directories the agent must focus on (/mention clear resets)' },
-      { name: '/compact', desc: 'summarize recent turns and trim context to avoid token pressure' },
-      { name: '/quit', desc: 'exit and display the session summary' },
-    ];
-    
-    slashCommands.forEach((cmd) => {
-      console.log(chalk.green(`    ${cmd.name.padEnd(20)}`) + chalk.gray(cmd.desc));
-    });
-    
-    // Non-slash commands
-    console.log(chalk.cyan('\n  Text Commands:'));
-    const textCommands = [
-      { name: 'help', desc: 'show help information and tips' },
-      { name: 'clear', desc: 'clear conversation history and reset system prompt' },
-      { name: 'exit', desc: 'exit the REPL (same as /quit)' },
-    ];
-    
-    textCommands.forEach((cmd) => {
-      console.log(chalk.green(`    ${cmd.name.padEnd(20)}`) + chalk.gray(cmd.desc));
-    });
-    
-    // Custom commands if any
-    if (customCommands.length > 0) {
-      console.log(chalk.cyan('\n  Custom Slash Commands:'));
-      customCommands.forEach((cmd) => {
-        const desc = cmd.description || `Custom command: ${cmd.name}`;
-        console.log(chalk.green(`    /${cmd.name.padEnd(18)}`) + chalk.gray(desc));
-      });
-    }
-    
-    console.log(chalk.gray('\nType "help" for more tips or start chatting with the agent.\n'));
+
+    console.log(chalk.gray('\nStart chatting with the agent. Type "/" for available commands.\n'));
 
     await this.configureApprovals(true);
 
     // Ensure the latest system prompt is active after approvals setup
     this.agent.reset(this.buildPrompt());
 
-    // Create readline interface for non-blocking input
+    // Create readline interface for input
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -165,7 +152,6 @@ export class REPL {
     if (trimmed.startsWith('/')) {
       // Execute command asynchronously without blocking input
       this.executeSlashCommandAsync(trimmed);
-      this.rl!.prompt();
       return;
     }
 
@@ -299,7 +285,15 @@ export class REPL {
       case 'model': {
         // Pause readline for interactive prompt
         this.rl!.pause();
-        await this.configureModel();
+        await this.configureReasoning();
+        this.agent.reset(this.buildPrompt());
+        this.rl!.resume();
+        return false;
+      }
+      case 'switch-model': {
+        // Pause readline for interactive prompt
+        this.rl!.pause();
+        await this.switchModel();
         this.agent.reset(this.buildPrompt());
         this.rl!.resume();
         return false;
@@ -328,7 +322,12 @@ export class REPL {
       case 'quit':
         return true;
       default:
-        console.log(chalk.yellow(`\nUnknown slash command: ${raw}\n`));
+        // If just "/" is entered, show command help instead of error
+        if (commandName === '') {
+          this.showCommandPreview();
+        } else {
+          console.log(chalk.yellow(`\nUnknown slash command: ${raw}\n`));
+        }
         return false;
     }
   }
@@ -383,7 +382,16 @@ export class REPL {
           .join('\n')
       : '    (none)';
     console.log('\nCurrent session status:\n');
-    console.log(`  Model:         ${this.sessionState.getModelName()} (fixed)`);
+    console.log(`  Model:         ${this.sessionState.getModelName()}`);
+    
+    // Show quota usage if available
+    if (this.quotaTracker) {
+      const quotaUsage = this.quotaTracker.getQuotaUsage();
+      console.log(`  Quota usage:`);
+      console.log(`    Requests:    ${quotaUsage.requests.minute}/${quotaUsage.limits.requests.minute} (min), ${quotaUsage.requests.hour}/${quotaUsage.limits.requests.hour} (hour), ${quotaUsage.requests.day}/${quotaUsage.limits.requests.day} (day)`);
+      console.log(`    Tokens:      ${quotaUsage.tokens.minute.toLocaleString()}/${quotaUsage.limits.tokens.minute.toLocaleString()} (min), ${quotaUsage.tokens.hour.toLocaleString()}/${quotaUsage.limits.tokens.hour.toLocaleString()} (hour), ${quotaUsage.tokens.day.toLocaleString()}/${quotaUsage.limits.tokens.day.toLocaleString()} (day)`);
+    }
+    
     console.log(`  Reasoning:     ${this.sessionState.getReasoning()} (${this.sessionState.reasoningDescription()})`);
     console.log(`  Approvals:     ${this.sessionState.approvalsSummary()}`);
     console.log(`  Mentions:      ${mentionList.length ? mentionList.join(', ') : '(none)'}`);
@@ -416,7 +424,7 @@ export class REPL {
     console.log(chalk.gray(`\nApproval policy updated: ${this.sessionState.approvalsSummary()}\n`));
   }
 
-  private async configureModel(): Promise<void> {
+  private async configureReasoning(): Promise<void> {
     // Note: readline should be paused before calling this if in REPL mode
     const { reasoning } = await inquirer.prompt<{ reasoning: ReasoningMode }>([
       {
@@ -432,6 +440,69 @@ export class REPL {
     ]);
     this.sessionState.setReasoning(reasoning);
     console.log(chalk.gray(`\nReasoning preference set to ${reasoning}.\n`));
+  }
+
+  private async switchModel(): Promise<void> {
+    const availableModels = listAvailableModels();
+    const currentModel = this.sessionState.getModelName();
+    
+    const { modelName } = await inquirer.prompt<{ modelName: string }>([
+      {
+        type: 'list',
+        name: 'modelName',
+        message: 'Select model:',
+        choices: availableModels.map((name) => ({
+          name: `${name}${name === currentModel ? ' (current)' : ''}`,
+          value: name,
+        })),
+        default: currentModel,
+      },
+    ]);
+
+    if (modelName === currentModel) {
+      console.log(chalk.gray(`\nModel is already set to ${modelName}.\n`));
+      return;
+    }
+
+    try {
+      // Validate model
+      if (!isValidModel(modelName)) {
+        throw new Error(`Invalid model: ${modelName}`);
+      }
+
+      // Get new config
+      const newConfig = getCerebrasConfig(modelName);
+      const modelConfig = getModelConfig(modelName);
+
+      if (!modelConfig) {
+        throw new Error(`Model config not found: ${modelName}`);
+      }
+
+      // Create new quota tracker
+      const newQuotaTracker = new QuotaTracker(modelConfig);
+
+      // Create new client
+      const newClient = new CerebrasClient(newConfig, this.tracker, newQuotaTracker);
+
+      // Update session state
+      this.sessionState.setModelName(modelName);
+
+      // Update client in agent
+      this.agent.updateClient(newClient);
+
+      // Update local references
+      this.client = newClient;
+      this.quotaTracker = newQuotaTracker;
+
+      console.log(chalk.green(`\n✓ Model switched to ${modelName}`));
+      console.log(chalk.gray(`  Max context: ${modelConfig.maxContextLength.toLocaleString()} tokens`));
+      console.log(chalk.gray(`  Request quota: ${modelConfig.quota.requests.minute}/min, ${modelConfig.quota.requests.hour}/hour, ${modelConfig.quota.requests.day}/day`));
+      console.log(chalk.gray(`  Token quota: ${modelConfig.quota.tokens.minute.toLocaleString()}/min, ${modelConfig.quota.tokens.hour.toLocaleString()}/hour, ${modelConfig.quota.tokens.day.toLocaleString()}/day\n`));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(chalk.red(`\n❌ Failed to switch model: ${errorMessage}\n`));
+      throw error;
+    }
   }
 
   private async handleMention(argument: string): Promise<void> {
@@ -520,5 +591,19 @@ export class REPL {
     ]);
 
     return confirm;
+  }
+
+  private showCommandPreview(): void {
+    console.log('\n' + chalk.cyan('Available Slash Commands:'));
+    SLASH_COMMANDS.forEach((cmd) => {
+      console.log(chalk.green(`  ${cmd.name.padEnd(18)}`) + chalk.gray(cmd.desc));
+    });
+
+    console.log(chalk.cyan('\nAvailable Text Commands:'));
+    TEXT_COMMANDS.forEach((cmd) => {
+      console.log(chalk.green(`  ${cmd.name.padEnd(18)}`) + chalk.gray(cmd.desc));
+    });
+
+    console.log(''); // Empty line
   }
 }

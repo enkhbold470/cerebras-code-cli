@@ -37,6 +37,10 @@ export class AgenticLoop {
     this.messages = [{ role: 'system', content: systemPrompt }];
   }
 
+  updateClient(client: CerebrasClient): void {
+    (this as any).client = client;
+  }
+
   async run(userPrompt: string, options?: AgentLoopOptions): Promise<string> {
     if (options?.systemPrompt) {
       this.reset(options.systemPrompt);
