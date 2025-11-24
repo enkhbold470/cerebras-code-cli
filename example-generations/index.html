@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Game Gallery</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #161e23;
+      color: #e2e8f0;
+      font-family: JetBrains Mono, SFMono-Regular, Menlo, monospace;
+      margin: 0;
+      min-height: 100vh;
+    }
+    h1 {
+      text-align: center;
+      padding: 32px 0 10px 0;
+      letter-spacing: 0.13em;
+      color: #00cfff;
+      font-size: 2.2em;
+    }
+    .gallery {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 32px;
+      justify-content: center;
+      padding: 32px 0 64px 0;
+      max-width: 920px;
+      margin: 0 auto;
+    }
+    .card {
+      background: #232e3c;
+      border-radius: 14px;
+      padding: 28px 32px 18px 32px;
+      box-shadow: 0 4px 24px #000d;
+      min-width: 210px;
+      max-width: 244px;
+      text-align: center;
+      transition: transform 0.13s, box-shadow 0.13s;
+      border: 1.5px solid #00cfff33;
+    }
+    .card:hover {
+      transform: translateY(-6px) scale(1.024);
+      box-shadow: 0 8px 32px #00cfff55;
+      border-color: #00cfff99;
+    }
+    .card a {
+      display: block;
+      font-size: 1.14em;
+      color: #00cfff;
+      text-decoration: none;
+      font-weight: bold;
+      margin-bottom: 8px;
+      letter-spacing: 0.03em;
+      transition: color 0.16s;
+    }
+    .card a:hover { color: #fff; }
+    .desc { color: #b3e6ff; font-size: 1em; margin-bottom: 0; min-height: 32px; }
+  </style>
+</head>
+<body>
+  <h1>Game Gallery</h1>
+  <div class="gallery">
+    <div class="card"><a href="tic-tac-toe.html">Tic Tac Toe</a><div class="desc">Classic 2-player game on a 3x3 grid.</div></div>
+    <div class="card"><a href="starship-game.html">Starship Game</a><div class="desc">Arcade-style space shooter, dodge & shoot!</div></div>
+    <div class="card"><a href="chess-game.html">Chess Game</a><div class="desc">Basic 2-player chess – click to move.</div></div>
+    <div class="card"><a href="quake3-demo.html">Quake 3 Demo</a><div class="desc">Retro FPS raycasting shooter, WASD + mouse.</div></div>
+    <div class="card"><a href="solitaire-card.html">Solitaire</a><div class="desc">Klondike solitaire, drag and drop cards.</div></div>
+    <div class="card"><a href="minesweeper.html">Minesweeper</a><div class="desc">Reveal all safe cells, avoid the bombs!</div></div>
+    <div class="card"><a href="memory-game.html">Memory Game</a><div class="desc">Flip cards and match all pairs.</div></div>
+    <div class="card"><a href="car-racing.html">Car Racing</a><div class="desc">Dodge cars and survive for a high score!</div></div>
+    <div class="card"><a href="minecraft-threejs.html">Minecraft Mini</a><div class="desc">3D block world in Three.js, creative mode.</div></div>
+    <div class="card"><a href="super-mario.html">Super Mario</a><div class="desc">Platformer – run, jump, collect, win!</div></div>
+    <div class="card"><a href="threejs-demo.html">Three.js Demo</a><div class="desc">Rotating 3D cube with orbit controls.</div></div>
+    <div class="card"><a href="framermotion-cdn-demo.html">Framer Motion Demo</a><div class="desc">React motion box (CDN, click to animate).</div></div>
+    <div class="card"><a href="portfolio.html">Portfolio</a><div class="desc">Sample portfolio page (static).</div></div>
+  </div>
+</body>
+</html>
