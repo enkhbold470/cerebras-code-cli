@@ -111,13 +111,15 @@ export function getOpenAIConfig(modelOverride?: string): OpenAIConfig {
 export function getLLMConfig(modelOverride?: string): CerebrasConfig | OpenAIConfig {
   // Determine provider: check model name first, then API keys
   const modelEnv = process.env.CEREBRAS_MODEL || process.env.OPENAI_MODEL;
-  const selectedModel = modelOverride || modelEnv || DEFAULT_MODEL;
+  const selectedModel = modelOverride || modelEnv;
   
   // If model is specified, use its provider
-  if (isValidModel(selectedModel)) {
+  if (selectedModel && isValidModel(selectedModel)) {
     const provider = getModelProvider(selectedModel);
     if (provider === 'openai') {
       return getOpenAIConfig(modelOverride);
+    } else {
+      return getCerebrasConfig(modelOverride);
     }
   }
   

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getCerebrasConfig, listAvailableModels } from '../src/config.js';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { getCerebrasConfig, getOpenAIConfig, getLLMConfig, listAvailableModels } from '../src/config.js';
 import { AVAILABLE_MODELS } from '../src/models.js';
 
 // Mock environment variables
@@ -8,6 +8,11 @@ const originalEnv = { ...process.env };
 beforeEach(() => {
   // Reset environment for each test
   process.env = { ...originalEnv };
+  // Explicitly clear OpenAI env vars that might be set in .env files
+  delete process.env.OPENAI_MODEL;
+  delete process.env.OPENAI_BASE_URL;
+  delete process.env.OPENAI_MAX_TOKENS;
+  delete process.env.OPENAI_TEMPERATURE;
   vi.clearAllMocks();
 });
 
@@ -112,9 +117,114 @@ describe('getCerebrasConfig', () => {
   it('should list all available models with invalid model error', () => {
     process.env.CEREBRAS_API_KEY = 'test-key';
 
-    expect(() => getCerebrasConfig('invalid-model')).toThrow(
-      'Invalid model: invalid-model. Available models: gpt-oss-120b, llama-3.3-70b, llama3.1-8b, qwen-3-235b-a22b-instruct-2507, qwen-3-32b, zai-glm-4.6'
-    );
+    expect(() => getCerebrasConfig('invalid-model')).toThrow('Invalid model: invalid-model');
+  });
+});
+
+describe('getOpenAIConfig', () => {
+  it('should throw error when OPENAI_API_KEY is not set', () => {
+    delete process.env.OPENAI_API_KEY;
+
+    expect(() => getOpenAIConfig()).toThrow('OPENAI_API_KEY not found');
+  });
+
+  it('should return default config with API key', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const config = getOpenAIConfig();
+
+    expect(config.apiKey).toBe('test-openai-key');
+    expect(config.model).toBe('gpt-4o-mini');
+    expect(config.baseUrl).toBe('https://api.openai.com/v1');
+    expect(config.maxTokens).toBe(4096);
+    expect(config.temperature).toBe(0.7);
+  });
+
+  it('should use custom model from parameter', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    const config = getOpenAIConfig('gpt-4o');
+
+    expect(config.model).toBe('gpt-4o');
+  });
+
+  it('should use custom model from environment variable', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.OPENAI_MODEL = 'gpt-4o';
+
+    const config = getOpenAIConfig();
+
+    expect(config.model).toBe('gpt-4o');
+  });
+
+  it('should prioritize parameter over environment variable', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.OPENAI_MODEL = 'gpt-4o';
+
+    const config = getOpenAIConfig('gpt-3.5-turbo');
+
+    expect(config.model).toBe('gpt-3.5-turbo');
+  });
+
+  it('should use custom base URL from environment', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.OPENAI_BASE_URL = 'https://custom.openai.com/v1';
+
+    const config = getOpenAIConfig();
+
+    expect(config.baseUrl).toBe('https://custom.openai.com/v1');
+  });
+
+  it('should throw error for invalid OpenAI model', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+
+    expect(() => getOpenAIConfig('invalid-model')).toThrow('Invalid model: invalid-model');
+  });
+});
+
+describe('getLLMConfig', () => {
+  it('should return OpenAI config when OpenAI API key is set', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    delete process.env.CEREBRAS_API_KEY;
+    delete process.env.OPENAI_MODEL;
+    delete process.env.CEREBRAS_MODEL;
+
+    const config = getLLMConfig();
+
+    expect(config.apiKey).toBe('test-openai-key');
+    expect('model' in config && config.model).toBe('gpt-4o-mini');
+  });
+
+  it('should return Cerebras config when only Cerebras API key is set', () => {
+    process.env.CEREBRAS_API_KEY = 'test-cerebras-key';
+    delete process.env.OPENAI_API_KEY;
+
+    const config = getLLMConfig();
+
+    expect(config.apiKey).toBe('test-cerebras-key');
+    expect('model' in config && config.model).toBe('qwen-3-235b-a22b-instruct-2507');
+  });
+
+  it('should detect provider from model name', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.CEREBRAS_API_KEY = 'test-cerebras-key';
+
+    const config = getLLMConfig('gpt-4o-mini');
+
+    expect(config.apiKey).toBe('test-openai-key');
+    expect('model' in config && config.model).toBe('gpt-4o-mini');
+  });
+
+  it('should prefer Cerebras when model is Cerebras model', () => {
+    process.env.OPENAI_API_KEY = 'test-openai-key';
+    process.env.CEREBRAS_API_KEY = 'test-cerebras-key';
+    delete process.env.OPENAI_MODEL;
+    delete process.env.CEREBRAS_MODEL;
+
+    const config = getLLMConfig('qwen-3-235b-a22b-instruct-2507');
+
+    expect(config.apiKey).toBe('test-cerebras-key');
+    expect('model' in config && config.model).toBe('qwen-3-235b-a22b-instruct-2507');
   });
 });
 

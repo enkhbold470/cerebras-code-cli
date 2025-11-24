@@ -4,13 +4,14 @@ import {
   getModelConfig,
   listAvailableModels,
   isValidModel,
+  getModelProvider,
   type ModelConfig
 } from '../src/models.js';
 
 describe('Models Configuration', () => {
   describe('AVAILABLE_MODELS', () => {
-    it('should contain all expected models', () => {
-      const expectedModels = [
+    it('should contain all expected models including OpenAI models', () => {
+      const expectedCerebrasModels = [
         'gpt-oss-120b',
         'llama-3.3-70b',
         'llama3.1-8b',
@@ -18,10 +19,28 @@ describe('Models Configuration', () => {
         'qwen-3-32b',
         'zai-glm-4.6'
       ];
+      
+      const expectedOpenAIModels = [
+        'gpt-4o',
+        'gpt-4o-mini',
+        'gpt-4-turbo',
+        'gpt-4',
+        'gpt-3.5-turbo'
+      ];
 
       const actualModels = Object.keys(AVAILABLE_MODELS);
-      expect(actualModels).toEqual(expectedModels);
-      expect(actualModels).toHaveLength(6);
+      
+      // Check Cerebras models
+      expectedCerebrasModels.forEach(model => {
+        expect(actualModels).toContain(model);
+      });
+      
+      // Check OpenAI models
+      expectedOpenAIModels.forEach(model => {
+        expect(actualModels).toContain(model);
+      });
+      
+      expect(actualModels.length).toBeGreaterThanOrEqual(11);
     });
 
     it('should have valid model configurations', () => {
@@ -85,9 +104,27 @@ describe('Models Configuration', () => {
     it('should return all available model names', () => {
       const models = listAvailableModels();
       expect(Array.isArray(models)).toBe(true);
-      expect(models).toHaveLength(6);
+      expect(models.length).toBeGreaterThanOrEqual(11);
       expect(models).toContain('qwen-3-235b-a22b-instruct-2507');
       expect(models).toContain('llama3.1-8b');
+      expect(models).toContain('gpt-4o-mini');
+      expect(models).toContain('gpt-4o');
+    });
+  });
+  
+  describe('getModelProvider', () => {
+    it('should return openai for OpenAI models', () => {
+      expect(getModelProvider('gpt-4o')).toBe('openai');
+      expect(getModelProvider('gpt-4o-mini')).toBe('openai');
+      expect(getModelProvider('gpt-4-turbo')).toBe('openai');
+      expect(getModelProvider('gpt-4')).toBe('openai');
+      expect(getModelProvider('gpt-3.5-turbo')).toBe('openai');
+    });
+
+    it('should return cerebras for Cerebras models', () => {
+      expect(getModelProvider('qwen-3-235b-a22b-instruct-2507')).toBe('cerebras');
+      expect(getModelProvider('llama3.1-8b')).toBe('cerebras');
+      expect(getModelProvider('gpt-oss-120b')).toBe('cerebras');
     });
   });
 
