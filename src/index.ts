@@ -14,6 +14,7 @@ import { SessionTracker } from './session/tracker.js';
 import { SlashCommandLoader } from './commands/slash-commands.js';
 import { CommandRegistry } from './commands/registry.js';
 import { QuotaTracker } from './quota-tracker.js';
+import { debugLog, debugError } from './utils/debug.js';
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'false';
 const isDebug = process.env.NODE_ENV === 'false';
@@ -147,8 +148,12 @@ async function main(): Promise<void> {
       return;
     }
 
+    debugLog('Creating REPL instance...');
     const repl = new REPL(agent, systemPromptBuilder, sessionState, tracker, client, quotaTracker, commandRegistry);
+    debugLog('REPL instance created');
+    debugLog('Calling repl.start()...');
     await repl.start();
+    debugLog('repl.start() completed - this should not happen until REPL closes!');
   } catch (error) {
     console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
     if (isDebug && error instanceof Error && error.stack) {
@@ -174,13 +179,64 @@ async function handlePromptMode(
   }
 }
 
-// Handle top-level await properly
-try {
-  await main();
-} catch (error) {
-  console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
-  if (process.env.NODE_ENV === 'debug' && error instanceof Error && error.stack) {
-    console.error(chalk.gray(error.stack));
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(chalk.red(`\n❌ Unhandled promise rejection: ${reason instanceof Error ? reason.message : String(reason)}\n`));
+  if (isDebug && reason instanceof Error && reason.stack) {
+    console.error(chalk.gray(reason.stack));
   }
-  process.exit(1);
+  // Don't exit - let the REPL continue running
+});
+
+// Ensure stdin stays open to keep process alive
+process.stdin.resume();
+debugLog('stdin resumed, isTTY:', process.stdin.isTTY);
+
+// Prevent process from exiting when there are no more async operations
+// This is critical for keeping the REPL alive
+const keepAliveInterval = setInterval(() => {
+  // This interval keeps the event loop alive
+  // It will be cleared when the process exits normally
+}, 1000);
+
+// Clean up interval on normal exit
+process.on('SIGINT', () => {
+  debugLog('SIGINT received, clearing keepAliveInterval');
+  clearInterval(keepAliveInterval);
+  process.exit(0);
+});
+
+process.on('exit', (code) => {
+  debugLog('Process exiting with code:', code);
+  clearInterval(keepAliveInterval);
+});
+
+// Start main without top-level await to avoid tsx warning
+// The REPL's readline interface will keep the process alive
+// We catch errors but let the REPL run indefinitely
+main()
+  .then(() => {
+    debugLog('main() completed - this should only happen when REPL closes');
+    // Don't exit here - the REPL should keep running
+    // Only exit if we're in prompt mode (which returns early)
+  })
+  .catch((error) => {
+    debugError('Error in main():', error);
+    console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
+    if (isDebug && error instanceof Error && error.stack) {
+      console.error(chalk.gray(error.stack));
+    }
+    clearInterval(keepAliveInterval);
+    process.exit(1);
+  });
+
+// Keep process alive - the REPL's readline will handle this, but we ensure it explicitly
+// This prevents the process from exiting when main() completes (in prompt mode)
+if (!process.stdin.isTTY) {
+  // If not a TTY, keep process alive by waiting on stdin
+  process.stdin.on('end', () => {
+    debugLog('stdin ended (non-TTY mode)');
+    clearInterval(keepAliveInterval);
+    process.exit(0);
+  });
 }

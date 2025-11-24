@@ -14,6 +14,7 @@ import { CerebrasClient } from './cerebras-client.js';
 import { QuotaTracker } from './quota-tracker.js';
 import { listAvailableModels, getModelConfig, isValidModel } from './models.js';
 import { getCerebrasConfig } from './config.js';
+import { debugLog, debugError } from './utils/debug.js';
 
 // Command definitions for preview
 const SLASH_COMMANDS = [
@@ -80,6 +81,7 @@ export class REPL {
   }
 
   async start(): Promise<void> {
+    debugLog('REPL.start() called');
     const asciiArt = `
  ██████╗███████╗██████╗ ███████╗██████╗ ██████╗  █████╗ ███████╗
 ██╔════╝██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝
@@ -91,55 +93,97 @@ export class REPL {
     console.log(chalk.cyan(asciiArt));
     console.log(chalk.cyan.bold('Cerebras Code CLI — Agentic Mode\n'));
     
+    debugLog('Loading slash commands...');
     // Load slash commands
     await this.commandRegistry.load();
     const customCommands = this.commandRegistry.list();
+    debugLog('Slash commands loaded:', customCommands.length);
 
     console.log(chalk.gray('\nStart chatting with the agent. Type "/" for available commands.\n'));
 
+    debugLog('Configuring approvals...');
     await this.configureApprovals(true);
+    debugLog('Approvals configured');
 
     // Ensure the latest system prompt is active after approvals setup
+    debugLog('Resetting agent with system prompt...');
     this.agent.reset(this.buildPrompt());
+    debugLog('Agent reset complete');
 
     // Create readline interface for input
+    debugLog('Creating readline interface...');
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       prompt: chalk.green('> '),
     });
+    debugLog('Readline interface created, rl:', !!this.rl);
 
+    debugLog('Setting up readline event handlers...');
     return new Promise<void>((resolve) => {
+      debugLog('Promise executor running');
+      
       this.rl!.on('line', async (input: string) => {
-        await this.handleInput(input);
+        debugLog('Line event received, input:', input.substring(0, 50));
+        try {
+          await this.handleInput(input);
+          debugLog('handleInput completed successfully');
+        } catch (error) {
+          // Ensure errors in handleInput don't crash the REPL
+          debugError('Error in handleInput:', error);
+          console.error(
+            chalk.red(
+              `\n❌ Input handling error: ${error instanceof Error ? error.message : 'Unknown error'}\n`,
+            ),
+          );
+          if (this.rl) {
+            debugLog('Reprompting after error');
+            this.rl.prompt();
+          } else {
+            debugLog('ERROR: rl is null after error!');
+          }
+        }
       });
 
       this.rl!.on('close', () => {
+        debugLog('Readline close event fired');
+        debugLog('Stack trace:', new Error().stack);
         this.printSessionSummary();
+        debugLog('Resolving promise - REPL is closing');
         resolve();
       });
 
       // Handle Ctrl+C
       this.rl!.on('SIGINT', () => {
+        debugLog('SIGINT received');
         console.log('\n');
         this.rl!.close();
       });
 
+      debugLog('Showing initial prompt');
       this.rl!.prompt();
+      debugLog('REPL.start() promise setup complete, waiting for events...');
+      debugLog('Readline interface state - isPaused:', this.rl!.getPrompt());
+      debugLog('Process stdin state - readable:', process.stdin.readable, 'destroyed:', process.stdin.destroyed);
     });
   }
 
   private async handleInput(input: string): Promise<void> {
+    debugLog('handleInput called, input:', input.substring(0, 50));
+    debugLog('rl exists:', !!this.rl);
     const trimmed = input.trim();
     const lower = trimmed.toLowerCase();
+    debugLog('trimmed:', trimmed.substring(0, 50), 'lower:', lower.substring(0, 50));
 
     if (!trimmed) {
+      debugLog('Empty input, reprompting');
       this.rl!.prompt();
       return;
     }
 
     // Show preview and confirm for large pastes before processing
     if (this.isLargePaste(trimmed)) {
+      debugLog('Large paste detected');
       const shouldProcess = await this.previewAndConfirmPaste(trimmed);
       if (!shouldProcess) {
         console.log(chalk.gray('Paste cancelled.\n'));
@@ -150,17 +194,20 @@ export class REPL {
 
     // Handle slash commands (non-blocking)
     if (trimmed.startsWith('/')) {
+      debugLog('Slash command detected:', trimmed);
       // Execute command asynchronously without blocking input
       this.executeSlashCommandAsync(trimmed);
       return;
     }
 
     if (lower === 'exit' || lower === 'quit') {
+      debugLog('Exit command detected');
       this.rl!.close();
       return;
     }
 
     if (lower === 'clear') {
+      debugLog('Clear command detected');
       this.agent.reset(this.buildPrompt());
       console.log(chalk.yellow('\n🔄 Conversation cleared; system prompt refreshed.\n'));
       this.rl!.prompt();
@@ -168,13 +215,16 @@ export class REPL {
     }
 
     if (lower === 'help') {
+      debugLog('Help command detected');
       this.showHelp();
       this.rl!.prompt();
       return;
     }
 
     // Process agent input (non-blocking)
+    debugLog('Processing as agent input');
     this.processInputAsync(trimmed);
+    debugLog('processInputAsync called (non-blocking), reprompting immediately');
     this.rl!.prompt();
   }
 
@@ -202,40 +252,82 @@ export class REPL {
   }
 
   private async processInputAsync(input: string): Promise<void> {
+    debugLog('processInputAsync called, input length:', input.length);
+    debugLog('isProcessing:', this.isProcessing);
+    debugLog('rl exists:', !!this.rl);
+    debugLog('pendingCommands.size:', this.pendingCommands.size);
+    
     if (this.isProcessing) {
+      debugLog('Already processing, skipping');
       console.log(chalk.yellow('\n⏳ Previous request still processing. Please wait...\n'));
-      this.rl!.prompt();
+      if (this.rl) {
+        this.rl.prompt();
+      }
       return;
     }
 
+    debugLog('Setting isProcessing to true');
     this.isProcessing = true;
     try {
+      debugLog('Calling processInput...');
       await this.processInput(input);
+      debugLog('processInput completed successfully');
     } catch (error) {
+      debugError('Error in processInput:', error);
       console.error(
         chalk.red(
           `\n❌ Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}\nUse "/compact" or "/clear" if the context is inconsistent.\n`,
         ),
       );
     } finally {
+      debugLog('Finally block: setting isProcessing to false');
       this.isProcessing = false;
-      if (this.pendingCommands.size === 0) {
-        this.rl!.prompt();
+      // Ensure readline interface is still open before prompting
+      debugLog('Checking if should reprompt: rl=', !!this.rl, 'pendingCommands=', this.pendingCommands.size);
+      if (this.rl && this.pendingCommands.size === 0) {
+        debugLog('Reprompting...');
+        try {
+          // Check if readline is still valid before prompting
+          if (process.stdin.readable && !process.stdin.destroyed) {
+            this.rl.prompt();
+            debugLog('Reprompt complete');
+          } else {
+            debugError('ERROR: stdin is not readable or destroyed!');
+            debugError('stdin.readable:', process.stdin.readable);
+            debugError('stdin.destroyed:', process.stdin.destroyed);
+          }
+        } catch (error) {
+          debugError('ERROR reprompting:', error);
+          debugError('Error stack:', error instanceof Error ? error.stack : 'no stack');
+        }
+      } else {
+        debugLog('Not reprompting - rl:', !!this.rl, 'pendingCommands:', this.pendingCommands.size);
       }
     }
   }
 
   private async processInput(input: string): Promise<void> {
+    debugLog('processInput called');
+    debugLog('rl exists:', !!this.rl);
+    debugLog('input:', input.substring(0, 100));
     try {
+      debugLog('Calling agent.run...');
       const response = await this.agent.run(input);
+      debugLog('agent.run completed, response length:', response.length);
       console.log(chalk.blueBright('\nAgent:\n'));
       console.log(`${response}\n`);
+      debugLog('Response printed');
     } catch (error) {
+      debugError('Error in processInput:', error);
+      if (error instanceof Error) {
+        debugError('Error stack:', error.stack);
+      }
       console.error(
         chalk.red(
           `\n❌ Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}\nUse "/compact" or "/clear" if the context is inconsistent.\n`,
         ),
       );
+      throw error; // Re-throw to be caught by processInputAsync
     }
   }
 
@@ -400,22 +492,32 @@ export class REPL {
   }
 
   private async configureApprovals(initial: boolean): Promise<void> {
+    debugLog('configureApprovals called, initial:', initial);
+    debugLog('process.stdin.isTTY:', process.stdin.isTTY);
+    
+    // Set default approvals for write_file and run_bash
+    if (initial) {
+      debugLog('Setting default approvals: write_file=true, run_bash=true');
+      this.sessionState.setApprovals({
+        write_file: true,
+        run_bash: true,
+      });
+      console.log(chalk.gray(`\nApproval policy set: ${this.sessionState.approvalsSummary()}\n`));
+      return;
+    }
+    
     // Skip interactive prompts when stdin is not a TTY (piped input)
     if (!process.stdin.isTTY) {
       console.log(chalk.gray(`\nApproval policy: ${this.sessionState.approvalsSummary()}\n`));
       return;
     }
 
-    if (!initial) {
-      console.log('');
-    }
+    console.log('');
     const { approvals } = await inquirer.prompt<{ approvals: ApprovalSubject[] }>([
       {
         type: 'checkbox',
         name: 'approvals',
-        message: initial
-          ? 'Select operations that should be auto-approved (space to toggle, enter to confirm):'
-          : 'Update auto-approval settings:',
+        message: 'Update auto-approval settings:',
         choices: APPROVAL_CHOICES.map((choice) => ({
           ...choice,
           checked: this.sessionState.isAutoApproved(choice.value),
