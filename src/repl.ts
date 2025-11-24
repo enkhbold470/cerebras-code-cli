@@ -63,6 +63,7 @@ export class REPL {
   private rl: readline.Interface | null = null;
   private isProcessing = false;
   private pendingCommands: Set<string> = new Set();
+  private isPaused = false;
   
   constructor(
     agent: AgenticLoop,
@@ -114,37 +115,46 @@ export class REPL {
 
     // Create readline interface for input
     debugLog('Creating readline interface...');
+    // Ensure stdin is not paused before creating interface
+    if (process.stdin.isPaused()) {
+      process.stdin.resume();
+    }
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
       prompt: chalk.green('> '),
     });
     debugLog('Readline interface created, rl:', !!this.rl);
+    debugLog('stdin readable:', process.stdin.readable, 'destroyed:', process.stdin.destroyed, 'paused:', process.stdin.isPaused());
 
     debugLog('Setting up readline event handlers...');
     return new Promise<void>((resolve) => {
       debugLog('Promise executor running');
       
-      this.rl!.on('line', async (input: string) => {
+      this.rl!.on('line', (input: string) => {
         debugLog('Line event received, input:', input.substring(0, 50));
-        try {
-          await this.handleInput(input);
-          debugLog('handleInput completed successfully');
-        } catch (error) {
-          // Ensure errors in handleInput don't crash the REPL
+        debugLog('stdin.readable:', process.stdin.readable, 'stdin.destroyed:', process.stdin.destroyed);
+        debugLog('rl paused:', this.isPaused);
+        // Handle input - don't await, let it run async
+        // The finally blocks will handle reprompting
+        this.handleInput(input).catch((error) => {
           debugError('Error in handleInput:', error);
           console.error(
             chalk.red(
               `\n❌ Input handling error: ${error instanceof Error ? error.message : 'Unknown error'}\n`,
             ),
           );
+          // Reprompt on error - ensure stdin is active
           if (this.rl) {
-            debugLog('Reprompting after error');
-            this.rl.prompt();
-          } else {
-            debugLog('ERROR: rl is null after error!');
+            if (this.isPaused) {
+              this.rl.resume();
+              this.isPaused = false;
+            }
+            if (process.stdin.readable && !process.stdin.destroyed) {
+              this.rl.prompt();
+            }
           }
-        }
+        });
       });
 
       this.rl!.on('close', () => {
@@ -223,11 +233,10 @@ export class REPL {
       return;
     }
 
-    // Process agent input (non-blocking)
+    // Process agent input
     debugLog('Processing as agent input');
+    // Start processing - it will reprompt when done
     this.processInputAsync(trimmed);
-    debugLog('processInputAsync called (non-blocking), reprompting immediately');
-    this.rl!.prompt();
   }
 
   private async executeSlashCommandAsync(raw: string): Promise<void> {
@@ -247,20 +256,19 @@ export class REPL {
       );
     } finally {
       this.pendingCommands.delete(commandId);
-      if (this.pendingCommands.size === 0 && !this.isProcessing) {
-        this.rl!.prompt();
+      // CRITICAL: Call prompt() synchronously - it resumes stdin automatically
+      if (this.rl && this.pendingCommands.size === 0 && !this.isProcessing && !this.isPaused) {
+        try {
+          this.rl.prompt();
+        } catch (err) {
+          debugError('Error reprompting:', err);
+        }
       }
     }
   }
 
   private async processInputAsync(input: string): Promise<void> {
-    debugLog('processInputAsync called, input length:', input.length);
-    debugLog('isProcessing:', this.isProcessing);
-    debugLog('rl exists:', !!this.rl);
-    debugLog('pendingCommands.size:', this.pendingCommands.size);
-    
     if (this.isProcessing) {
-      debugLog('Already processing, skipping');
       console.log(chalk.yellow('\n⏳ Previous request still processing. Please wait...\n'));
       if (this.rl) {
         this.rl.prompt();
@@ -268,42 +276,49 @@ export class REPL {
       return;
     }
 
-    debugLog('Setting isProcessing to true');
     this.isProcessing = true;
     try {
-      debugLog('Calling processInput...');
       await this.processInput(input);
-      debugLog('processInput completed successfully');
     } catch (error) {
-      debugError('Error in processInput:', error);
       console.error(
         chalk.red(
           `\n❌ Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}\nUse "/compact" or "/clear" if the context is inconsistent.\n`,
         ),
       );
     } finally {
-      debugLog('Finally block: setting isProcessing to false');
       this.isProcessing = false;
-      // Ensure readline interface is still open before prompting
-      debugLog('Checking if should reprompt: rl=', !!this.rl, 'pendingCommands=', this.pendingCommands.size);
-      if (this.rl && this.pendingCommands.size === 0) {
-        debugLog('Reprompting...');
+      // CRITICAL: Ensure stdin is active and prompt is called
+      if (this.rl) {
         try {
-          // Check if readline is still valid before prompting
-          if (process.stdin.readable && !process.stdin.destroyed) {
-            this.rl.prompt();
-            debugLog('Reprompt complete');
-          } else {
-            debugError('ERROR: stdin is not readable or destroyed!');
-            debugError('stdin.readable:', process.stdin.readable);
-            debugError('stdin.destroyed:', process.stdin.destroyed);
+          // Explicitly resume stdin stream if paused
+          if (process.stdin.isPaused()) {
+            debugLog('stdin was paused, resuming...');
+            process.stdin.resume();
           }
-        } catch (error) {
-          debugError('ERROR reprompting:', error);
-          debugError('Error stack:', error instanceof Error ? error.stack : 'no stack');
+          // Explicitly resume readline if paused
+          if (this.isPaused) {
+            debugLog('readline was paused, resuming...');
+            this.rl.resume();
+            this.isPaused = false;
+          }
+          // Ensure stdin is readable before prompting
+          if (process.stdin.readable && !process.stdin.destroyed) {
+            // rl.prompt() automatically resumes stdin if paused, but we do it explicitly above
+            this.rl.prompt();
+            debugLog('Reprompted successfully, stdin state:', {
+              readable: process.stdin.readable,
+              destroyed: process.stdin.destroyed,
+              paused: process.stdin.isPaused()
+            });
+          } else {
+            debugError('ERROR: stdin not readable or destroyed!', {
+              readable: process.stdin.readable,
+              destroyed: process.stdin.destroyed
+            });
+          }
+        } catch (err) {
+          debugError('Error reprompting:', err);
         }
-      } else {
-        debugLog('Not reprompting - rl:', !!this.rl, 'pendingCommands:', this.pendingCommands.size);
       }
     }
   }
@@ -371,25 +386,34 @@ export class REPL {
       case 'approvals': {
         // Pause readline for interactive prompt
         this.rl!.pause();
+        this.isPaused = true;
         await this.configureApprovals(false);
-        this.agent.reset(this.buildPrompt());
+        // Update system prompt without clearing conversation history
+        this.agent.updateSystemPrompt(this.buildPrompt());
         this.rl!.resume();
+        this.isPaused = false;
         return false;
       }
       case 'model': {
         // Pause readline for interactive prompt
         this.rl!.pause();
+        this.isPaused = true;
         await this.configureReasoning();
-        this.agent.reset(this.buildPrompt());
+        // Update system prompt without clearing conversation history
+        this.agent.updateSystemPrompt(this.buildPrompt());
         this.rl!.resume();
+        this.isPaused = false;
         return false;
       }
       case 'switch-model': {
         // Pause readline for interactive prompt
         this.rl!.pause();
+        this.isPaused = true;
         await this.switchModel();
-        this.agent.reset(this.buildPrompt());
+        // Update system prompt without clearing conversation history
+        this.agent.updateSystemPrompt(this.buildPrompt());
         this.rl!.resume();
+        this.isPaused = false;
         return false;
       }
       case 'mention': {
@@ -400,7 +424,8 @@ export class REPL {
         } catch (error) {
           spinner.fail(`Failed to update mentions: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
-        this.agent.reset(this.buildPrompt());
+        // Update system prompt without clearing conversation history
+        this.agent.updateSystemPrompt(this.buildPrompt());
         return false;
       }
       case 'compact': {

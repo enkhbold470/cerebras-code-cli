@@ -43,13 +43,16 @@
     "ora": "^9.0.0"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/inquirer": "^9.0.9",
     "@types/node": "^24.10.1",
     "@vitest/ui": "^4.0.12",
+    "autoprefixer": "^10.4.22",
     "del-cli": "^7.0.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.17",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.12",
-    "@types/bun": "latest"
+    "vitest": "^4.0.12"
   }
 }

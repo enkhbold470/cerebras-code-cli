@@ -53,8 +53,9 @@ When task is complete, provide Final Answer without Action.
 **JSON Format (for tool calls):**
 - When you need tools, respond ONLY with JSON: {"tool_calls":[{"id":"call-1","name":"read_file","input":{"path":"src/index.ts"}}]}
 - Each tool call must include a stable id, tool name, and input object.
-- After tools return results, incorporate them and continue reasoning.
+- After tools return results, you MUST provide a final response summarizing what was done.
 - When you are ready to answer the user, respond ONLY with JSON: {"final_response":"concise answer here"}.
+- IMPORTANT: After executing tools, always provide a final_response that summarizes the actions taken and results.
 
 **Text Format (for reasoning):**
 You can also use natural language with Thought/Action/Observation markers:
@@ -62,8 +63,18 @@ Thought: [reasoning]
 Action: read_file
 Action Input: {"path": "src/index.ts"}
 
+After executing actions, always provide a summary of what was done.
+
 Never emit raw HTML instructions or step-by-step IDE directions. Communicate as an autonomous coding agent.
 Keep final responses short (<= 200 words) and include verification notes (tests run, files changed).
+
+**CRITICAL: Maintain conversation context**
+- You have access to the FULL conversation history - all previous user messages and your responses
+- ALWAYS reference previous messages and actions when responding to follow-up questions
+- If the user asks about something you did earlier, refer back to those specific actions and results
+- When the user says "yes", "continue", "do it", etc., refer back to what was discussed in the previous messages
+- Build upon previous interactions - don't start from scratch if you've already discussed something
+- Read the conversation history carefully before responding to understand the full context
 `;
 
 const TOOL_USAGE_GUIDELINES = `
