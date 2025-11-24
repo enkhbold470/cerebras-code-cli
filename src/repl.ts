@@ -400,6 +400,12 @@ export class REPL {
   }
 
   private async configureApprovals(initial: boolean): Promise<void> {
+    // Skip interactive prompts when stdin is not a TTY (piped input)
+    if (!process.stdin.isTTY) {
+      console.log(chalk.gray(`\nApproval policy: ${this.sessionState.approvalsSummary()}\n`));
+      return;
+    }
+
     if (!initial) {
       console.log('');
     }

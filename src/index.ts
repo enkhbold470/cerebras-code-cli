@@ -174,10 +174,13 @@ async function handlePromptMode(
   }
 }
 
-main().catch((error) => {
+// Handle top-level await properly
+try {
+  await main();
+} catch (error) {
   console.error(chalk.red(`\n❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}\n`));
   if (process.env.NODE_ENV === 'debug' && error instanceof Error && error.stack) {
     console.error(chalk.gray(error.stack));
   }
   process.exit(1);
-});
+}
