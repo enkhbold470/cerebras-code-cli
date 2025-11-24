@@ -2,6 +2,8 @@
 
 A conversational AI CLI tool powered by Cerebras with intelligent text editor capabilities and tool usage.
 
+<img width="1051" height="720" alt="image" src="https://github.com/user-attachments/assets/8a7dbc86-e9a0-4c53-aedc-667af3ae0852" />
+
 ## Features
 
 - **🤖 Conversational AI**: Natural language interface powered by Cerebras
