@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Minesweeper (Canvas)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #181f2a;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    #game {
+      background: #23272f;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 32px 40px 24px 40px;
+      text-align: center;
+    }
+    canvas {
+      background: #101624;
+      border-radius: 8px;
+      box-shadow: 0 0 8px #00ff9f44;
+      margin-bottom: 16px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .info {
+      margin-bottom: 10px;
+      font-size: 1.08em;
+      color: #b3e6ff;
+    }
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #00ff9f;
+      color: #222;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #00b36b;
+    }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div class="info" id="info">Minesweeper – Left click: Reveal, Right click: Flag</div>
+    <canvas id="mine" width="338" height="338"></canvas>
+    <div>
+      <button id="reset">Restart</button>
+    </div>
+  </div>
+  <script>
+    // Game config
+    const SIZE = 9, BOMBS = 10, CELL = 36, PAD = 5;
+    let board, revealed, flagged, gameover, win;
+    function reset() {
+      board = Array.from({length:SIZE}, () => Array(SIZE).fill(0));
+      revealed = Array.from({length:SIZE}, () => Array(SIZE).fill(false));
+      flagged = Array.from({length:SIZE}, () => Array(SIZE).fill(false));
+      gameover = false; win = false;
+      // Place bombs
+      let placed = 0;
+      while(placed < BOMBS) {
+        let x = Math.floor(Math.random()*SIZE), y = Math.floor(Math.random()*SIZE);
+        if(board[y][x]===9) continue;
+        board[y][x]=9; placed++;
+      }
+      // Count numbers
+      for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++) {
+        if(board[y][x]===9) continue;
+        let n=0;
+        for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+          let nx=x+dx,ny=y+dy;
+          if(nx>=0&&nx<SIZE&&ny>=0&&ny<SIZE&&board[ny][nx]===9) n++;
+        }
+        board[y][x]=n;
+      }
+      document.getElementById('info').textContent = 'Minesweeper – Left click: Reveal, Right click: Flag';
+      render();
+    }
+    const canvas = document.getElementById('mine');
+    const ctx = canvas.getContext('2d');
+    function render() {
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      for(let y=0;y<SIZE;y++) for(let x=0;x<SIZE;x++) {
+        let px=PAD+x*CELL,py=PAD+y*CELL;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(px, py, CELL-2, CELL-2, 6);
+        ctx.fillStyle = revealed[y][x] ? '#181f2a' : '#24946b';
+        ctx.fill();
+        ctx.strokeStyle = '#222'; ctx.stroke();
+        if(flagged[y][x]) {
+          ctx.font = '20px JetBrains Mono'; ctx.fillStyle='#f43';
+          ctx.fillText('⚑', px+10, py+24);
+        } else if(revealed[y][x]) {
+          if(board[y][x]===9) {
+            ctx.font = '22px JetBrains Mono'; ctx.fillStyle='#faa';
+            ctx.fillText('💣', px+7, py+25);
+          } else if(board[y][x]>0) {
+            ctx.font = '18px JetBrains Mono'; ctx.fillStyle='#96e6ff';
+            ctx.fillText(board[y][x], px+14, py+24);
+          }
+        }
+        ctx.restore();
+      }
+    }
+    function reveal(x, y) {
+      if(gameover||flagged[y][x]||revealed[y][x]) return;
+      revealed[y][x]=true;
+      if(board[y][x]===9) {
+        gameover=true;
+        document.getElementById('info').textContent = '💥 Game Over!';
+        // Reveal all bombs
+        for(let yy=0;yy<SIZE;yy++) for(let xx=0;xx<SIZE;xx++) if(board[yy][xx]===9) revealed[yy][xx]=true;
+        render(); return;
+      }
+      // Flood fill for zeros
+      if(board[y][x]===0) for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+        let nx=x+dx,ny=y+dy;
+        if(nx>=0&&nx<SIZE&&ny>=0&&ny<SIZE) reveal(nx,ny);
+      }
+      // Check win
+      let safe=0;
+      for(let yy=0;yy<SIZE;yy++) for(let xx=0;xx<SIZE;xx++) if(!revealed[yy][xx]) safe++;
+      if(safe===BOMBS&&!gameover) {
+        win=true; gameover=true;
+        document.getElementById('info').textContent = '🎉 You Win!';
+      }
+      render();
+    }
+    canvas.oncontextmenu = ()=>false;
+    canvas.addEventListener('mousedown', e=>{
+      if(gameover) return;
+      let rect = canvas.getBoundingClientRect();
+      let mx = e.clientX-rect.left, my = e.clientY-rect.top;
+      let x = Math.floor((mx-PAD)/CELL), y = Math.floor((my-PAD)/CELL);
+      if(x<0||x>=SIZE||y<0||y>=SIZE) return;
+      if(e.button===2) flagged[y][x]=!flagged[y][x];
+      else reveal(x,y);
+      render();
+    });
+    document.getElementById('reset').onclick=reset;
+    reset();
+  </script>
+</body>
+</html>

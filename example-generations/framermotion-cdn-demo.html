@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Framer Motion CDN Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { background: #161e23; color: #fff; font-family: JetBrains Mono, monospace; }
+    #root { display: flex; justify-content: center; align-items: center; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <!-- React and ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- Framer Motion -->
+  <script src="https://unpkg.com/framer-motion/dist/framer-motion.umd.js"></script>
+  <script>
+    const { motion } = window['framer-motion'];
+    const { createElement: h, useState } = React;
+
+    function Demo() {
+      const [flip, setFlip] = useState(false);
+      return h(
+        "div",
+        { style: { textAlign: "center" } },
+        h(
+          motion.div,
+          {
+            animate: { rotateY: flip ? 180 : 0, scale: flip ? 1.4 : 1 },
+            transition: { type: "spring", stiffness: 200 },
+            style: {
+              width: 120, height: 120,
+              margin: "0 auto 18px auto",
+              background: "#00cfff",
+              borderRadius: 20,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              fontSize: 32,
+              color: "#151a1e",
+              cursor: "pointer",
+              boxShadow: "0 8px 32px #00cfff44"
+            },
+            onClick: () => setFlip(f => !f)
+          },
+          flip ? "🎉" : "🚀"
+        ),
+        h("div", null, "Click the box!")
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(h(Demo));
+  </script>
+</body>
+</html>

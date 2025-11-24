@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>2D Car Racing Game (Canvas)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      background: #19202a;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    #game {
+      background: #222931;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px #000b;
+      padding: 32px 40px 24px 40px;
+      text-align: center;
+    }
+    canvas {
+      background: #202b36;
+      border-radius: 8px;
+      box-shadow: 0 0 8px #00cfff44;
+      margin-bottom: 16px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .info {
+      margin-bottom: 10px;
+      font-size: 1.08em;
+      color: #b3e6ff;
+    }
+    button {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      background: #00cfff;
+      color: #122;
+      font-weight: bold;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #0084b3;
+    }
+    .score { color: #fffb00; font-weight: bold; font-size: 1.15em; }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <div class="info">Car Racing – Use ← → or A/D to steer</div>
+    <canvas id="racing" width="360" height="540"></canvas>
+    <div class="score" id="score">SCORE: 0</div>
+    <button id="reset">Restart</button>
+  </div>
+  <script>
+    const W=360, H=540, ROAD_W=120, ROAD_X=(W-ROAD_W)/2, LANE_W=40, CAR_W=28, CAR_H=48;
+    let car, obstacles, score, alive;
+    function reset() {
+      car = {x:W/2, y:H-80, vx:0};
+      obstacles = [];
+      score = 0;
+      alive = true;
+      document.getElementById('score').textContent = 'SCORE: 0';
+    }
+    document.getElementById('reset').onclick = reset;
+    // Controls
+    let left=false, right=false;
+    document.addEventListener('keydown',e=>{
+      if(e.key==='ArrowLeft'||e.key==='a') left=true;
+      if(e.key==='ArrowRight'||e.key==='d') right=true;
+    });
+    document.addEventListener('keyup',e=>{
+      if(e.key==='ArrowLeft'||e.key==='a') left=false;
+      if(e.key==='ArrowRight'||e.key==='d') right=false;
+    });
+    const canvas=document.getElementById('racing');
+    const ctx=canvas.getContext('2d');
+    function logic() {
+      if(!alive) return;
+      // Move car
+      car.vx = (right?4:0) - (left?4:0);
+      car.x += car.vx;
+      if(car.x < ROAD_X+CAR_W/2) car.x = ROAD_X+CAR_W/2;
+      if(car.x > ROAD_X+ROAD_W-CAR_W/2) car.x = ROAD_X+ROAD_W-CAR_W/2;
+      // Move obstacles
+      for(let obs of obstacles) obs.y += 6;
+      // Remove off-screen and add new
+      if(obstacles.length<5 && Math.random()<0.04) {
+        let lane = Math.floor(Math.random()*3);
+        obstacles.push({x:ROAD_X+LANE_W/2+lane*LANE_W, y:-CAR_H, w:CAR_W, h:CAR_H});
+      }
+      obstacles = obstacles.filter(o=>o.y<H+CAR_H);
+      // Collision
+      for(let obs of obstacles){
+        if(Math.abs(car.x-obs.x)<CAR_W && Math.abs(car.y-obs.y)<CAR_H-10) {
+          alive=false;
+          document.getElementById('score').textContent = 'GAME OVER! SCORE: '+score;
+        }
+      }
+      // Score
+      for(let obs of obstacles) if(!obs.passed && obs.y>car.y) { obs.passed=true; score++; document.getElementById('score').textContent = 'SCORE: '+score; }
+    }
+    function render() {
+      ctx.clearRect(0,0,W,H);
+      // Road
+      ctx.fillStyle='#444'; ctx.fillRect(ROAD_X,0,ROAD_W,H);
+      ctx.fillStyle='#888';
+      for(let i=0;i<H;i+=44) ctx.fillRect(W/2-3,i,6,28);
+      // Lanes
+      ctx.strokeStyle='#b3e6ff'; ctx.lineWidth=2;
+      ctx.strokeRect(ROAD_X,0,ROAD_W,H);
+      // Car
+      ctx.save();
+      ctx.translate(car.x,car.y);
+      ctx.fillStyle='#00cfff'; ctx.strokeStyle='#003c5c'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.roundRect(-CAR_W/2,-CAR_H/2,CAR_W,CAR_H,9);
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+      // Obstacles
+      for(let obs of obstacles){
+        ctx.save(); ctx.translate(obs.x,obs.y);
+        ctx.fillStyle='#ff6161'; ctx.strokeStyle='#a11'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.roundRect(-CAR_W/2,-CAR_H/2,CAR_W,CAR_H,8);
+        ctx.fill(); ctx.stroke(); ctx.restore();
+      }
+    }
+    function loop(){ logic(); render(); requestAnimationFrame(loop); }
+    reset();
+    loop();
+  </script>
+</body>
+</html>

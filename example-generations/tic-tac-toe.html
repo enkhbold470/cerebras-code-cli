@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tic Tac Toe Canvas Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        background: #181f2a;
+        color: #e2e8f0;
+        font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+      }
+      #game {
+        background: #232e3c;
+        border-radius: 12px;
+        box-shadow: 0 4px 32px #0009;
+        padding: 32px 40px 24px 40px;
+        text-align: center;
+      }
+      canvas {
+        background: #101624;
+        border-radius: 8px;
+        box-shadow: 0 0 8px #00ff9f44;
+        margin-bottom: 16px;
+      }
+      .info {
+        margin-bottom: 10px;
+        font-size: 1.1em;
+      }
+      button {
+        padding: 8px 18px;
+        border: none;
+        border-radius: 6px;
+        background: #00ff9f;
+        color: #222;
+        font-weight: bold;
+        font-size: 1em;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      button:hover {
+        background: #00b36b;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game">
+      <div class="info" id="info">Player X's turn</div>
+      <canvas id="board" width="360" height="360"></canvas>
+      <div>
+        <button id="reset">Restart</button>
+      </div>
+    </div>
+    <script>
+      const canvas = document.getElementById('board');
+      const ctx = canvas.getContext('2d');
+      const size = 3;
+      const cellSize = canvas.width / size;
+      let board = Array.from({ length: size }, () => Array(size).fill(''));
+      let currentPlayer = 'X';
+      let gameOver = false;
+
+      function drawBoard() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#00ff9f';
+        // Draw grid
+        for (let i = 1; i < size; i++) {
+          ctx.beginPath();
+          ctx.moveTo(i * cellSize, 0);
+          ctx.lineTo(i * cellSize, canvas.height);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(0, i * cellSize);
+          ctx.lineTo(canvas.width, i * cellSize);
+          ctx.stroke();
+        }
+        // Draw marks
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            const mark = board[y][x];
+            if (mark) {
+              ctx.save();
+              ctx.strokeStyle = mark === 'X' ? '#00ff9f' : '#ff60a0';
+              ctx.lineWidth = 6;
+              if (mark === 'X') {
+                ctx.beginPath();
+                ctx.moveTo(x * cellSize + 22, y * cellSize + 22);
+                ctx.lineTo((x + 1) * cellSize - 22, (y + 1) * cellSize - 22);
+                ctx.moveTo((x + 1) * cellSize - 22, y * cellSize + 22);
+                ctx.lineTo(x * cellSize + 22, (y + 1) * cellSize - 22);
+                ctx.stroke();
+              } else {
+                ctx.beginPath();
+                ctx.arc(
+                  x * cellSize + cellSize / 2,
+                  y * cellSize + cellSize / 2,
+                  cellSize / 2 - 24,
+                  0,
+                  2 * Math.PI
+                );
+                ctx.stroke();
+              }
+              ctx.restore();
+            }
+          }
+        }
+      }
+
+      function checkWinner() {
+        // Rows, columns, diagonals
+        for (let i = 0; i < size; i++) {
+          if (
+            board[i][0] &&
+            board[i][0] === board[i][1] &&
+            board[i][1] === board[i][2]
+          )
+            return board[i][0];
+          if (
+            board[0][i] &&
+            board[0][i] === board[1][i] &&
+            board[1][i] === board[2][i]
+          )
+            return board[0][i];
+        }
+        if (
+          board[0][0] &&
+          board[0][0] === board[1][1] &&
+          board[1][1] === board[2][2]
+        )
+          return board[0][0];
+        if (
+          board[0][2] &&
+          board[0][2] === board[1][1] &&
+          board[1][1] === board[2][0]
+        )
+          return board[0][2];
+        // Draw?
+        if (board.flat().every(cell => cell)) return 'draw';
+        return null;
+      }
+
+      function handleClick(e) {
+        if (gameOver) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.floor((e.clientX - rect.left) / cellSize);
+        const y = Math.floor((e.clientY - rect.top) / cellSize);
+        if (board[y][x]) return;
+        board[y][x] = currentPlayer;
+        drawBoard();
+        const winner = checkWinner();
+        if (winner) {
+          document.getElementById('info').textContent =
+            winner === 'draw'
+              ? "It's a draw!"
+              : `Player ${winner} wins!`;
+          gameOver = true;
+        } else {
+          currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+          document.getElementById('info').textContent = `Player ${currentPlayer}'s turn`;
+        }
+      }
+
+      function resetGame() {
+        board = Array.from({ length: size }, () => Array(size).fill(''));
+        currentPlayer = 'X';
+        gameOver = false;
+        document.getElementById('info').textContent = `Player X's turn`;
+        drawBoard();
+      }
+
+      canvas.addEventListener('click', handleClick);
+      document.getElementById('reset').addEventListener('click', resetGame);
+      drawBoard();
+    </script>
+  </body>
+</html>

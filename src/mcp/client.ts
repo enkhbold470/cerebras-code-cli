@@ -1,125 +1,170 @@
-import { spawn, ChildProcess } from 'child_process';
-import { readFile } from 'fs/promises';
-import { existsSync } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { EventEmitter } from "events";
+import { createTransport, MCPTransport, TransportType, TransportConfig } from "./transports.js";
 
-export interface MCPServer {
+export interface MCPServerConfig {
   name: string;
-  command: string;
-  args: string[];
+  transport: TransportConfig;
+  // Legacy support for stdio-only configs
+  command?: string;
+  args?: string[];
   env?: Record<string, string>;
 }
 
 export interface MCPTool {
   name: string;
   description: string;
-  inputSchema: Record<string, unknown>;
+  inputSchema: any;
+  serverName: string;
 }
 
-export interface MCPConfig {
-  mcpServers: Record<string, MCPServer>;
-}
+export class MCPManager extends EventEmitter {
+  private clients: Map<string, Client> = new Map();
+  private transports: Map<string, MCPTransport> = new Map();
+  private tools: Map<string, MCPTool> = new Map();
 
-/**
- * MCP Client for communicating with MCP servers via JSON-RPC 2.0
- */
-export class MCPClient {
-  private servers: Map<string, ChildProcess> = new Map();
-  private configPath: string;
-
-  constructor(configPath?: string) {
-    this.configPath = configPath || join(homedir(), '.cerebras', 'mcp-servers.json');
-  }
-
-  /**
-   * Load MCP server configuration
-   */
-  async loadConfig(): Promise<MCPConfig | null> {
-    if (!existsSync(this.configPath)) {
-      return null;
-    }
-
+  async addServer(config: MCPServerConfig): Promise<void> {
     try {
-      const content = await readFile(this.configPath, 'utf-8');
-      return JSON.parse(content) as MCPConfig;
-    } catch {
-      return null;
+      // Handle legacy stdio-only configuration
+      let transportConfig = config.transport;
+      if (!transportConfig && config.command) {
+        transportConfig = {
+          type: 'stdio',
+          command: config.command,
+          args: config.args,
+          env: config.env
+        };
+      }
+
+      if (!transportConfig) {
+        throw new Error('Transport configuration is required');
+      }
+
+      // Create transport
+      const transport = createTransport(transportConfig);
+      this.transports.set(config.name, transport);
+
+      // Create client
+      const client = new Client(
+        {
+          name: "cerebras-cli",
+          version: "1.0.0"
+        },
+        {
+          capabilities: {
+            tools: {}
+          }
+        }
+      );
+
+      this.clients.set(config.name, client);
+
+      // Connect
+      const sdkTransport = await transport.connect();
+      await client.connect(sdkTransport);
+
+      // List available tools
+      const toolsResult = await client.listTools();
+      
+      // Register tools
+      for (const tool of toolsResult.tools) {
+        const mcpTool: MCPTool = {
+          name: `mcp__${config.name}__${tool.name}`,
+          description: tool.description || `Tool from ${config.name} server`,
+          inputSchema: tool.inputSchema,
+          serverName: config.name
+        };
+        this.tools.set(mcpTool.name, mcpTool);
+      }
+
+      this.emit('serverAdded', config.name, toolsResult.tools.length);
+    } catch (error) {
+      this.emit('serverError', config.name, error);
+      throw error;
     }
   }
 
-  /**
-   * Initialize MCP servers from config
-   */
-  async initializeServers(): Promise<void> {
-    const config = await this.loadConfig();
-    if (!config || !config.mcpServers) {
-      return;
+  async removeServer(serverName: string): Promise<void> {
+    // Remove tools
+    for (const [toolName, tool] of this.tools.entries()) {
+      if (tool.serverName === serverName) {
+        this.tools.delete(toolName);
+      }
     }
 
-    for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
+    // Disconnect client
+    const client = this.clients.get(serverName);
+    if (client) {
+      await client.close();
+      this.clients.delete(serverName);
+    }
+
+    // Close transport
+    const transport = this.transports.get(serverName);
+    if (transport) {
+      await transport.disconnect();
+      this.transports.delete(serverName);
+    }
+
+    this.emit('serverRemoved', serverName);
+  }
+
+  async callTool(toolName: string, arguments_: any): Promise<CallToolResult> {
+    const tool = this.tools.get(toolName);
+    if (!tool) {
+      throw new Error(`Tool ${toolName} not found`);
+    }
+
+    const client = this.clients.get(tool.serverName);
+    if (!client) {
+      throw new Error(`Server ${tool.serverName} not connected`);
+    }
+
+    // Extract the original tool name (remove mcp__servername__ prefix)
+    const originalToolName = toolName.replace(`mcp__${tool.serverName}__`, '');
+
+    return await client.callTool({
+      name: originalToolName,
+      arguments: arguments_
+    });
+  }
+
+  getTools(): MCPTool[] {
+    return Array.from(this.tools.values());
+  }
+
+  getServers(): string[] {
+    return Array.from(this.clients.keys());
+  }
+
+  async shutdown(): Promise<void> {
+    const serverNames = Array.from(this.clients.keys());
+    await Promise.all(serverNames.map(name => this.removeServer(name)));
+  }
+
+  getTransportType(serverName: string): TransportType | undefined {
+    const transport = this.transports.get(serverName);
+    return transport?.getType();
+  }
+
+  async ensureServersInitialized(): Promise<void> {
+    if (this.clients.size > 0) {
+      return; // Already initialized
+    }
+
+    const { loadMCPConfig } = await import('../mcp/config');
+    const config = loadMCPConfig();
+    
+    // Initialize servers in parallel to avoid blocking
+    const initPromises = config.servers.map(async (serverConfig) => {
       try {
-        await this.startServer(name, serverConfig);
+        await this.addServer(serverConfig);
       } catch (error) {
-        console.warn(`Warning: Failed to start MCP server ${name}: ${error}`);
+        console.warn(`Failed to initialize MCP server ${serverConfig.name}:`, error);
       }
-    }
-  }
-
-  /**
-   * Start an MCP server
-   */
-  private async startServer(name: string, config: MCPServer): Promise<void> {
-    const proc = spawn(config.command, config.args, {
-      env: { ...process.env, ...config.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
     });
-
-    this.servers.set(name, proc);
-
-    // Handle server output
-    proc.stdout?.on('data', (data) => {
-      // Parse JSON-RPC messages from stdout
-      // This is a simplified implementation
-    });
-
-    proc.stderr?.on('data', (data) => {
-      console.warn(`[MCP ${name}] ${data.toString()}`);
-    });
-
-    proc.on('exit', (code) => {
-      if (code !== 0) {
-        console.warn(`[MCP ${name}] Server exited with code ${code}`);
-      }
-      this.servers.delete(name);
-    });
-  }
-
-  /**
-   * List available tools from all MCP servers
-   */
-  async listTools(): Promise<MCPTool[]> {
-    // This would require implementing JSON-RPC 2.0 protocol
-    // For now, return empty array as placeholder
-    return [];
-  }
-
-  /**
-   * Call an MCP tool
-   */
-  async callTool(serverName: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
-    // This would require implementing JSON-RPC 2.0 protocol
-    // For now, throw error as placeholder
-    throw new Error('MCP tool calls not yet implemented');
-  }
-
-  /**
-   * Shutdown all MCP servers
-   */
-  shutdown(): void {
-    for (const [name, proc] of this.servers.entries()) {
-      proc.kill();
-      this.servers.delete(name);
-    }
+    
+    await Promise.all(initPromises);
   }
 }
