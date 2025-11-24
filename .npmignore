@@ -1,8 +1,55 @@
+# Source files (only include built dist/)
 src/
 tsconfig.json
-.env
-.env.*
-*.log
+
+# Lock files
+*.lock
+bun.lockb
+
+# Development tools
+.gitignore
+.eslintrc*
+.prettierrc*
+*.config.*
+.editorconfig
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
 .DS_Store
-node_modules/
+._*
+Thumbs.db
+
+# Logs
+*.log
+.bun/
+
+# Environment files
+.env*
+
+# Test files and coverage
+test/
+tests/
+*.test.*
+*.spec.*
+coverage/
+.nyc_output/
+
+# Documentation (keep only README.md)
+docs/
+*.md
+!README.md
+
+# Git and CI
 .git/
+.github/
+*.yml
+
+# Misc
+*.tgz
+.eslintcache
