@@ -1,6 +1,6 @@
 {
   "name": "@enkhbold470/cerebras-cli",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "An open-source AI agent that brings the power of Cerebras directly into your terminal.",
   "type": "module",
   "main": "dist/index.js",
