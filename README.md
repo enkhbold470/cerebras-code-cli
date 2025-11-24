@@ -108,6 +108,50 @@ Add to `~/.cerebras/user-settings.json`:
 }
 ```
 
+### Using OpenAI Models
+
+The CLI is compatible with OpenAI's API and can use OpenAI models. To use OpenAI instead of Cerebras:
+
+**Method 1: Environment Variables**
+```bash
+export CEREBRAS_API_KEY="sk-your-openai-api-key"
+export CEREBRAS_BASE_URL="https://api.openai.com/v1"
+ccode --model gpt-4o
+```
+
+**Method 2: Command Line**
+```bash
+ccode --api-key sk-your-openai-api-key --base-url https://api.openai.com/v1 --model gpt-4o
+```
+
+**Method 3: User Settings File**
+Update `~/.cerebras/user-settings.json`:
+```json
+{
+  "apiKey": "sk-your-openai-api-key",
+  "baseURL": "https://api.openai.com/v1",
+  "defaultModel": "gpt-4o",
+  "models": [
+    "gpt-4o",
+    "gpt-4-turbo",
+    "gpt-4",
+    "gpt-3.5-turbo",
+    "o1-preview",
+    "o1-mini"
+  ]
+}
+```
+
+**Available OpenAI Models:**
+- `gpt-4o` - Latest GPT-4 optimized model
+- `gpt-4-turbo` - GPT-4 Turbo
+- `gpt-4` - Standard GPT-4
+- `gpt-3.5-turbo` - Fast and cost-effective
+- `o1-preview` - Reasoning model
+- `o1-mini` - Smaller reasoning model
+
+**Note:** The CLI uses OpenAI-compatible API endpoints, so it works seamlessly with both Cerebras and OpenAI APIs. Just change the base URL and API key, and use the appropriate model names.
+
 ## Configuration Files
 
 Cerebras CLI uses two types of configuration files to manage settings:

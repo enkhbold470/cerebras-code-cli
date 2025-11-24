@@ -45,7 +45,7 @@ export class CcodeClient {
   private defaultMaxTokens: number;
 
   constructor(apiKey: string, model?: string, baseURL?: string) {
-    let finalBaseURL = baseURL || process.env.CEREBRAS_BASE_URL || "https://api.cerebras.ai/v1/chat/completions";
+    let finalBaseURL = baseURL || process.env.CEREBRAS_BASE_URL || "https://api.cerebras.ai/v1";
     
     // Ensure base URL is properly formatted (OpenAI client appends /chat/completions automatically)
     // Remove any trailing slashes and endpoint paths
@@ -53,12 +53,25 @@ export class CcodeClient {
     finalBaseURL = finalBaseURL.replace(/\/chat\/completions\/?$/, ''); // Remove /chat/completions if present
     finalBaseURL = finalBaseURL.replace(/\/+$/, ''); // Remove trailing slashes
     
-    // Ensure it ends with /v1 (required for Cerebras API)
+    // Ensure it ends with /v1 (required for OpenAI-compatible APIs)
     if (!finalBaseURL.endsWith('/v1')) {
       // If it already has /v1, keep it; otherwise add it
       if (!finalBaseURL.match(/\/v1\/?$/)) {
         finalBaseURL = finalBaseURL + '/v1';
       }
+    }
+    
+    // Warn if using OpenAI model names with non-OpenAI base URL
+    const isOpenAIModel = model && /^gpt-|^o1-/.test(model);
+    const isOpenAIBaseURL = finalBaseURL.includes('api.openai.com');
+    const isCerebrasKey = apiKey.startsWith('csk-');
+    
+    if (isOpenAIModel && !isOpenAIBaseURL && isCerebrasKey) {
+      console.warn(
+        `⚠️  Warning: Using OpenAI model "${model}" with Cerebras API. ` +
+        `This may cause errors. Use Cerebras models (e.g., llama-3.3-70b) with Cerebras API, ` +
+        `or set baseURL to https://api.openai.com/v1 and use OpenAI API key.`
+      );
     }
     
     this.client = new OpenAI({
